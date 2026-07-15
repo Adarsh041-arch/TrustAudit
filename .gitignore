@@ -1,0 +1,22 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Node
+audit-frontend/node_modules/
+audit-frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Generated
+sample_docs/Bill*.pdf
+sample_docs/RS*.pdf
+*.docx

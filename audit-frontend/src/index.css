@@ -1,0 +1,63 @@
+@import "tailwindcss";
+
+@theme {
+  /* Ink */
+  --color-ink: #2C2C2A;
+  --color-ink-50: #F5F5F4;
+
+  /* Muted secondary text */
+  --color-muted: #5F5E5A;
+
+  /* Teal — model / AI outputs */
+  --color-teal-50: #E1F5EE;
+  --color-teal-600: #0F6E56;
+
+  /* Coral — risk / anomaly only */
+  --color-coral-50: #FAECE7;
+  --color-coral-600: #993C1D;
+
+  /* Blue — human actions */
+  --color-blue-50: #E6F1FB;
+  --color-blue-600: #185FA5;
+
+  /* Gray — structural */
+  --color-gray-400: #888780;
+
+  /* Surfaces set via CSS vars so dark mode swaps them */
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-hairline: var(--border);
+
+  /* Typography */
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+
+  --font-size-page: 22px;
+  --font-size-section: 18px;
+  --font-size-body: 16px;
+  --font-size-meta: 13px;
+  --font-size-metric: 24px;
+
+  --radius-custom: 8px;
+}
+
+:root {
+  --surface-1: #F5F5F4;
+  --surface-2: #FFFFFF;
+  --border: #d4d4d0;
+}
+
+.dark {
+  --surface-1: #1A1A18;
+  --surface-2: #242422;
+  --border: #3D3C38;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color: var(--color-ink);
+  background: var(--surface-1);
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
