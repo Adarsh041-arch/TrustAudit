@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import type { AuditResponse, Status } from './types/audit'
-import { runAudit } from './api/audit'
+import { runAudit, downloadReport } from './api/audit'
 import { useDarkMode } from './hooks/useDarkMode'
 import { Header } from './components/Header'
 import { SummaryMetrics } from './sections/SummaryMetrics'
 import { DocumentList } from './sections/DocumentList'
 import { ReportSection } from './sections/ReportSection'
 import { FlatCard } from './components/FlatCard'
+import { ProcessingAnimation } from './components/ProcessingAnimation'
 
 function App() {
   const { dark, toggle } = useDarkMode()
@@ -14,6 +15,7 @@ function App() {
   const [status, setStatus] = useState<Status>('idle')
   const [data, setData] = useState<AuditResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [downloading, setDownloading] = useState(false)
 
   async function handleRun() {
     if (!folderPath.trim()) return
@@ -27,6 +29,18 @@ function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
       setStatus('error')
+    }
+  }
+
+  async function handleDownload() {
+    if (!folderPath.trim()) return
+    setDownloading(true)
+    try {
+      await downloadReport(folderPath.trim(), data?.report.audit_title)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Download failed')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -53,14 +67,23 @@ function App() {
               disabled={status === 'loading' || !folderPath.trim()}
               className="px-5 py-2 rounded-lg text-[13px] font-medium border-[0.5px] border-teal-600 text-teal-600 bg-transparent hover:bg-teal-50 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer shrink-0"
             >
-              {status === 'loading' ? 'Running…' : 'Run audit'}
+              {status === 'loading' ? 'Running\u2026' : 'Run audit'}
             </button>
+            {data && (
+              <button
+                onClick={handleDownload}
+                disabled={downloading}
+                className="px-5 py-2 rounded-lg text-[13px] font-medium border-[0.5px] border-blue-600 text-blue-600 bg-transparent hover:bg-blue-50 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer shrink-0"
+              >
+                {downloading ? 'Downloading\u2026' : 'Download .docx'}
+              </button>
+            )}
           </div>
         </FlatCard>
 
         {/* Loading */}
         {status === 'loading' && (
-          <p className="text-[13px] text-muted text-center">Audit in progress…</p>
+          <ProcessingAnimation />
         )}
 
         {/* Error */}

@@ -13,6 +13,7 @@ export interface DocumentAuditResult {
   score: number
   failed_rules: FailedChecklistItem[]
   remarks: string
+  preview_base64: string
 }
 
 export interface FinalAuditReport {

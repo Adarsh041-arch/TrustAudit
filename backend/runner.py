@@ -1,12 +1,43 @@
+import base64
 import math
+import os
 import time
+from io import BytesIO
 from typing import Optional
+
+import fitz
+from PIL import Image
 
 from app.graph import build_graph
 from app.state import AuditState
 from app.schemas import FinalAuditReport
 
 from backend.schemas import PredictionInterval, AuditResponse
+
+SUPPORTED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp"})
+THUMB_MAX_SIZE = 180
+
+
+def _generate_preview(file_path: str) -> str:
+    ext = os.path.splitext(file_path)[1].lower()
+    try:
+        if ext == ".pdf":
+            doc = fitz.open(file_path)
+            if len(doc) == 0:
+                doc.close()
+                return ""
+            pix = doc.load_page(0).get_pixmap()
+            doc.close()
+            img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+        else:
+            img = Image.open(file_path).convert("RGB")
+
+        img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), Image.LANCZOS)
+        buf = BytesIO()
+        img.save(buf, format="JPEG", quality=80)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception:
+        return ""
 
 
 def compute_prediction_interval(report: FinalAuditReport) -> PredictionInterval:
@@ -42,6 +73,11 @@ def run_audit(
 
     report: FinalAuditReport = result["final_report"]
     interval = compute_prediction_interval(report)
+
+    for doc_result in report.document_results:
+        candidate = os.path.join(folder_path, doc_result.document_name)
+        if os.path.isfile(candidate) and os.path.splitext(candidate)[1].lower() in SUPPORTED_EXTENSIONS:
+            doc_result.preview_base64 = _generate_preview(candidate)
 
     return AuditResponse(
         report=report,

@@ -41,6 +41,7 @@ class DocumentAuditResult(BaseModel):
     score: float = Field(ge=0.0, le=100.0)
     failed_rules: list[FailedChecklistItem] = Field(default_factory=list)
     remarks: str = ""
+    preview_base64: str = ""
 
 
 class FinalAuditReport(BaseModel):
