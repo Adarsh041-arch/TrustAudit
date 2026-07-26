@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e "audit_v2[dev]"
+      - name: Ruff lint
+        run: ruff check audit_v2/
+      - name: MyPy type-check
+        run: mypy audit_v2/
+
+  import-linter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e "audit_v2[dev]"
+      - name: Check architecture contracts
+        run: lint-imports --config .importlinter
+
+  schema-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install jsonschema pyyaml
+      - name: Validate JSON Schemas
+        run: |
+          python -m json.tool contracts/schemas/coverage.json /dev/null
+          python -m json.tool contracts/schemas/provenance.json /dev/null
+          python -m json.tool contracts/schemas/document.json /dev/null
+          python -m json.tool contracts/schemas/finding.json /dev/null
+          python -m json.tool contracts/schemas/check_catalog_entry.json /dev/null
+          python -m json.tool contracts/schemas/check_catalog.json /dev/null
+      - name: Validate check catalog against schema
+        run: |
+          python -c "
+import json, yaml
+from jsonschema import validate, RefResolver
+
+with open('contracts/schemas/check_catalog_entry.json') as f:
+    entry_schema = json.load(f)
+with open('contracts/schemas/check_catalog.json') as f:
+    catalog_schema = json.load(f)
+
+with open('contracts/check_catalog.yaml') as f:
+    catalog = yaml.safe_load(f)
+
+validate(catalog, catalog_schema)
+
+det_count = sum(1 for c in catalog['checks'] if c['determinism'] == 'deterministic')
+total = len(catalog['checks'])
+pct = det_count / total * 100
+print(f'Checks: {total}, deterministic: {det_count} ({pct:.0f}%)')
+assert pct >= 80, f'Only {pct:.0f}% deterministic, need ≥ 80%'
+          "
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -e "audit_v2[dev]"
+      - name: Run tests
+        run: pytest --cov=audit_v2 --cov-report=term-missing -v
+      - name: Enforce validator coverage gate (PHASES_V2 §4 Phase 6)
+        run: |
+          pytest --cov=audit_v2.domain.validators \
+                 --cov-branch \
+                 --cov-fail-under=95 \
+                 --cov-report=term-missing \
+                 -q

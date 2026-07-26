@@ -1,0 +1,47 @@
+{
+  "version": "1",
+  "measured_at": "2026-07-25T20:00:44Z",
+  "documents_count": 1,
+  "documents_successful": 1,
+  "average_latency_seconds": 2.14,
+  "metrics": {
+    "overall_precision": 1.0,
+    "overall_recall": 0.1667,
+    "overall_f1": 0.2857,
+    "estimated_cost_per_doc_inr": 1.07
+  },
+  "per_document": [
+    {
+      "document": "INV-2026-0715_NewTech_Solutions.pdf",
+      "document_id_gold": "doc_gold_inv_001",
+      "doc_type": "invoice",
+      "elapsed_seconds": 2.14,
+      "pages_processed": 2,
+      "expected_fail_check_ids": [
+        "CHK-ARITH-GRAND-001",
+        "CHK-ARITH-LINE-001",
+        "CHK-ARITH-SUBTOTAL-001",
+        "CHK-ARITH-TAX-001",
+        "CHK-ARITH-TAX-002",
+        "CHK-FORMAT-WORDS-001"
+      ],
+      "reported_fail_check_ids": [
+        "CHK-ARITH-LINE-001"
+      ],
+      "findings_count": 1,
+      "passed": false,
+      "score": 91.67,
+      "precision": 1.0,
+      "recall": 0.1667,
+      "f1": 0.2857,
+      "tp": 1,
+      "fp": 0,
+      "fn": 5,
+      "estimated_cost_inr": 1.07,
+      "error": null
+    }
+  ],
+  "golden_set_source": "evaluation/golden_set/manifests",
+  "gate": "M0 - Phase 0 V1 baseline (precision/recall vs. expected_findings)",
+  "notes": "V1 delegates arithmetic to the LLM (B1 defect) and uses float math (B3 defect). This baseline establishes the floor that V2 must beat."
+}

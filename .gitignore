@@ -20,3 +20,11 @@ Thumbs.db
 sample_docs/Bill*.pdf
 sample_docs/RS*.pdf
 *.docx
+
+# Test artifacts
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+*.egg-info/

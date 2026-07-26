@@ -1,0 +1,42 @@
+document_id: doc_gold_inv_001
+doc_type: invoice
+source: sample_docs/INV-2026-0715_NewTech_Solutions.pdf
+description: >
+  Synthetic invoice by generate_test_bill.py with deliberate arithmetic errors.
+  Tests: line-item total, taxable subtotal, GST rate applicability, grand total,
+  and amount-in-words consistency.
+
+expected_findings:
+  - check_id: CHK-ARITH-LINE-001
+    expected_status: FAIL
+    detail: "Line 2: 10 x 800.00 = 8,000.00, stated 8,800.00"
+
+  - check_id: CHK-ARITH-SUBTOTAL-001
+    expected_status: FAIL
+    detail: "Line total sum 1,33,000 ≠ stated taxable value 1,33,800"
+
+  - check_id: CHK-ARITH-TAX-001
+    expected_status: FAIL
+    detail: "HSN 4820 (stationery) charged 18% GST, expected 12%"
+
+  - check_id: CHK-ARITH-TAX-002
+    expected_status: FAIL
+    detail: "CGST total 12,042 ≠ correct 11,670"
+
+  - check_id: CHK-ARITH-GRAND-001
+    expected_status: FAIL
+    detail: "Grand total 1,57,884 ≠ correct 1,56,340"
+
+  - check_id: CHK-FORMAT-WORDS-001
+    expected_status: FAIL
+    detail: "Amount in words matches stated total, not correct total"
+
+  - check_id: CHK-ARITH-LINE-001
+    expected_status: PASS
+    detail: "Line 1, 3, 4 arithmetic correct"
+
+  - check_id: CHK-REF-GST-001
+    expected_status: PASS
+
+  - check_id: CHK-FORMAT-MANDATORY-001
+    expected_status: PASS

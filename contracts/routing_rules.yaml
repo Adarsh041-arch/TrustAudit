@@ -1,0 +1,82 @@
+# Routing rules — doc_type x value_band x tenant_policy -> check set.
+# Every check_id here MUST exist in contracts/check_catalog.yaml and be listed
+# with a matching `applies_to` entry. Enforced by tests/test_routing_catalog_consistency.py.
+rules:
+  - rule_id: ROUTE-INV-001
+    doc_type: invoice
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-ARITH-LINE-001
+      - CHK-ARITH-SUBTOTAL-001
+      - CHK-ARITH-TAX-001
+      - CHK-ARITH-TAX-002
+      - CHK-ARITH-DISCOUNT-001
+      - CHK-ARITH-GRAND-001
+      - CHK-ARITH-ROUNDING-001
+      - CHK-RFWD-BALANCE-001
+      - CHK-SEQ-INVNUM-001
+      - CHK-THRESHOLD-LINE-001
+      - CHK-THRESHOLD-DISC-001
+      - CHK-THRESHOLD-TAXRATE-001
+      - CHK-TEMP-INVDATE-001
+      - CHK-TEMP-PODATE-001
+      - CHK-TEMP-EXPIRY-001
+      - CHK-REF-PO-001
+      - CHK-REF-GST-001
+      - CHK-REF-HSN-001
+      - CHK-REF-BANK-001
+      - CHK-REF-QTY-001
+      - CHK-FORMAT-MANDATORY-001
+      - CHK-FORMAT-MANDATORY-002
+      - CHK-FORMAT-TAXBREAKDOWN-001
+      - CHK-FORMAT-CURRENCY-001
+    exclude_checks:
+      - CHK-FORMAT-WORDS-001
+
+  - rule_id: ROUTE-PO-001
+    doc_type: purchase_order
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-ARITH-LINE-001
+      - CHK-ARITH-SUBTOTAL-001
+      - CHK-ARITH-GRAND-001
+      - CHK-ARITH-ROUNDING-001
+      - CHK-SEQ-PONUM-001
+      - CHK-THRESHOLD-LINE-001
+      - CHK-TEMP-PODATE-001
+      - CHK-TEMP-EXPIRY-001
+      - CHK-REF-GST-001
+      - CHK-FORMAT-MANDATORY-001
+      - CHK-FORMAT-MANDATORY-002
+      - CHK-FORMAT-CURRENCY-001
+
+  - rule_id: ROUTE-DC-001
+    doc_type: delivery_challan
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-SEQ-CHALLAN-001
+      - CHK-TEMP-DELIVERY-001
+      - CHK-REF-HSN-001
+      - CHK-REF-QTY-001
+      - CHK-FORMAT-MANDATORY-001
+      - CHK-FORMAT-MANDATORY-002
+      - CHK-FORMAT-CURRENCY-001
+
+  - rule_id: ROUTE-GRN-001
+    doc_type: goods_receipt_note
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-ARITH-SUBTOTAL-001
+      - CHK-TEMP-DELIVERY-001
+      - CHK-REF-QTY-002
+      - CHK-FORMAT-MANDATORY-001
+      - CHK-FORMAT-MANDATORY-002
+      - CHK-FORMAT-CURRENCY-001

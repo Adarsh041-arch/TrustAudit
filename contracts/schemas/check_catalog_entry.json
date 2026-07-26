@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/check_catalog_entry.json",
+  "title": "CheckCatalogEntry",
+  "description": "A single check in the audit check catalog.",
+  "type": "object",
+  "properties": {
+    "check_id": {
+      "type": "string",
+      "pattern": "^CHK-[A-Z]+-[A-Z]+-[0-9]{3}$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "arithmetic", "roll_forward", "sequence", "threshold",
+        "temporal", "reference_integrity", "format_completeness", "duplicate"
+      ]
+    },
+    "applies_to": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["invoice", "purchase_order", "delivery_challan", "goods_receipt_note"]
+      },
+      "minItems": 1
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "determinism": {
+      "type": "string",
+      "enum": ["deterministic", "model_assisted", "hybrid"]
+    },
+    "inputs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "tolerance": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["absolute", "relative", "none"]
+        },
+        "value": {
+          "type": "string"
+        },
+        "currency_scaled": {
+          "type": "boolean"
+        }
+      },
+      "required": ["type", "value"]
+    },
+    "failure_message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requires_human_review": {
+      "type": "boolean"
+    },
+    "ruleset_version": {
+      "type": ["string", "null"],
+      "pattern": "^(rs_[0-9_]+|null)?$"
+    }
+  },
+  "required": [
+    "check_id", "title", "category", "applies_to", "severity",
+    "determinism", "inputs", "tolerance", "failure_message"
+  ]
+}
