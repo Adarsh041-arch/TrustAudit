@@ -1,0 +1,21 @@
+generator_version: 2.0.0
+document_id: PO-2026-0163
+doc_type: purchase_order
+cluster_id: cluster-15
+source: evaluation/golden_set/docs/PO-2026-0163.pdf
+description: 'Synthetic PO, cluster cluster-15, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0163
+  vendor_gstin: 06FKQCO4614I1Z2
+  grand_total: '213500.00'
+expected_lines:
+- qty: '15'
+  rate: '13500.00'
+  total: '202500.00'
+  hsn: '8472'
+- qty: '1'
+  rate: '11000.00'
+  total: '11000.00'
+  hsn: '8528'

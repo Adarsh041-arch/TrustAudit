@@ -159,9 +159,11 @@ class GRNExtractor(BaseExtractor):
                 header.document_id = raw_value
 
             elif field == "invoice_date":
+                # A GRN's document date IS its receipt date — that is the field
+                # CHK-FORMAT-MANDATORY-001 and CHK-TEMP-DELIVERY-001 read.
                 parsed = parse_date(raw_value)
                 if parsed:
-                    header.invoice_date = ProvenancedValue(
+                    header.grn_date = ProvenancedValue(
                         value=parsed.isoformat(),
                         raw=raw_value,
                         bbox=bbox,

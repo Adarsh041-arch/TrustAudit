@@ -1,0 +1,47 @@
+generator_version: 2.0.0
+document_id: INV-2026-0051
+doc_type: invoice
+cluster_id: cluster-04
+source: evaluation/golden_set/docs/INV-2026-0051.pdf
+description: 'Synthetic invoice, cluster cluster-04, defects: [''invalid_tax_slab'',
+  ''missing_bank'']'
+defects:
+- invalid_tax_slab
+- missing_bank
+expected_findings:
+- check_id: CHK-ARITH-TAX-001
+  expected_status: FAIL
+  defect: invalid_tax_slab
+- check_id: CHK-THRESHOLD-TAXRATE-001
+  expected_status: FAIL
+  defect: invalid_tax_slab
+- check_id: CHK-REF-BANK-001
+  expected_status: FAIL
+  defect: missing_bank
+expected_fields:
+  document_id: INV-2026-0051
+  vendor_gstin: 33RNQBK7170R2ZQ
+  subtotal: '635900.00'
+  grand_total: '877542.00'
+  po_reference: PO-2026-0414
+expected_lines:
+- qty: '2'
+  rate: '35000.00'
+  total: '70000.00'
+  hsn: '9403'
+- qty: '3'
+  rate: '300.00'
+  total: '900.00'
+  hsn: '4802'
+- qty: '19'
+  rate: '18000.00'
+  total: '342000.00'
+  hsn: '8517'
+- qty: '8'
+  rate: '6500.00'
+  total: '52000.00'
+  hsn: '8504'
+- qty: '18'
+  rate: '9500.00'
+  total: '171000.00'
+  hsn: '8418'

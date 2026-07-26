@@ -1,0 +1,32 @@
+generator_version: 2.0.0
+document_id: INV-2026-0140
+doc_type: invoice
+cluster_id: cluster-29
+source: evaluation/golden_set/docs/INV-2026-0140.pdf
+description: 'Synthetic invoice, cluster cluster-29, defects: [''missing_po_ref'',
+  ''missing_bank'']'
+defects:
+- missing_po_ref
+- missing_bank
+expected_findings:
+- check_id: CHK-REF-PO-001
+  expected_status: FAIL
+  defect: missing_po_ref
+- check_id: CHK-REF-BANK-001
+  expected_status: FAIL
+  defect: missing_bank
+expected_fields:
+  document_id: INV-2026-0140
+  vendor_gstin: 37VTVBM1834G3Z3
+  subtotal: '688000.00'
+  grand_total: '811840.00'
+  po_reference: null
+expected_lines:
+- qty: '14'
+  rate: '35000.00'
+  total: '490000.00'
+  hsn: '9403'
+- qty: '11'
+  rate: '18000.00'
+  total: '198000.00'
+  hsn: '8517'

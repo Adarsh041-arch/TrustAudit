@@ -29,7 +29,9 @@ HEADER_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
         re.IGNORECASE,
     ),
     "vendor_name": re.compile(
-        r"(?:From|Vendor|Supplier)\s*:?\s*(.+?)(?:\n|$)", re.IGNORECASE
+        r"(?:Dispatch\s*From|From|Vendor|Supplier)\s*:?\s*"
+        r"(?:\n|\t)*(?:Name\s*:\s*)?[\t ]*(.+?)(?:\n|\t|$)",
+        re.IGNORECASE,
     ),
     "vehicle_number": re.compile(
         r"(?:Vehicle\s*(?:No|Number)|Truck\s*No)\s*:?\s*([A-Za-z0-9/-]+)",
@@ -159,9 +161,11 @@ class DeliveryChallanExtractor(BaseExtractor):
                 header.document_id = raw_value
 
             elif field == "invoice_date":
+                # A challan's document date IS its delivery date — that is the
+                # field CHK-FORMAT-MANDATORY-001 and CHK-TEMP-DELIVERY-001 read.
                 parsed = parse_date(raw_value)
                 if parsed:
-                    header.invoice_date = ProvenancedValue(
+                    header.delivery_date = ProvenancedValue(
                         value=parsed.isoformat(),
                         raw=raw_value,
                         bbox=bbox,

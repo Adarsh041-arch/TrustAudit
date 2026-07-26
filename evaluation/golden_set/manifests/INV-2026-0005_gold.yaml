@@ -1,0 +1,36 @@
+generator_version: 2.0.0
+document_id: INV-2026-0005
+doc_type: invoice
+cluster_id: cluster-22
+source: evaluation/golden_set/docs/INV-2026-0005.pdf
+description: 'Synthetic invoice, cluster cluster-22, defects: [''missing_po_ref'',
+  ''bad_hsn'']'
+defects:
+- missing_po_ref
+- bad_hsn
+expected_findings:
+- check_id: CHK-REF-PO-001
+  expected_status: FAIL
+  defect: missing_po_ref
+- check_id: CHK-REF-HSN-001
+  expected_status: FAIL
+  defect: bad_hsn
+expected_fields:
+  document_id: INV-2026-0005
+  vendor_gstin: 09DFIPF2062B5Z4
+  subtotal: '378700.00'
+  grand_total: '446866.00'
+  po_reference: null
+expected_lines:
+- qty: '18'
+  rate: '11000.00'
+  total: '198000.00'
+  hsn: '8528'
+- qty: '5'
+  rate: '35000.00'
+  total: '175000.00'
+  hsn: '9403'
+- qty: '19'
+  rate: '300.00'
+  total: '5700.00'
+  hsn: '84712'

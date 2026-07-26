@@ -48,7 +48,9 @@ HEADER_FIELD_PATTERNS: dict[str, re.Pattern] = {
         re.IGNORECASE,
     ),
     "po_reference": re.compile(
-        r"(?:PO|P\.?O\.?|Purchase\s*Order)\s*(?:No|Number|#|Reference|Ref)?\s*:?\s*([A-Za-z0-9/-]+)",
+        # \b guards: without them "PO" matches inside "24-port", capturing "rt".
+        r"\b(?:PO|P\.?O\.?|Purchase\s*Order)\b\s*"
+        r"(?:No|Number|#|Reference|Ref)?\.?\s*:\s*([A-Za-z0-9][A-Za-z0-9/-]*)",
         re.IGNORECASE,
     ),
     "grand_total": re.compile(

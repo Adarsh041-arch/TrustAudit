@@ -1,0 +1,30 @@
+generator_version: 2.0.0
+document_id: INV-2026-0128
+doc_type: invoice
+cluster_id: cluster-06
+source: evaluation/golden_set/docs/INV-2026-0128.pdf
+description: 'Synthetic invoice, cluster cluster-06, defects: [''line_item_error'']'
+defects:
+- line_item_error
+expected_findings:
+- check_id: CHK-ARITH-LINE-001
+  expected_status: FAIL
+  defect: line_item_error
+- check_id: CHK-ARITH-ROUNDING-001
+  expected_status: FAIL
+  defect: line_item_error
+expected_fields:
+  document_id: INV-2026-0128
+  vendor_gstin: 33RNSGJ6092P1ZT
+  subtotal: '173300.00'
+  grand_total: '204494.00'
+  po_reference: PO-2026-0677
+expected_lines:
+- qty: '14'
+  rate: '4200.00'
+  total: '59300.00'
+  hsn: '8544'
+- qty: '12'
+  rate: '9500.00'
+  total: '114000.00'
+  hsn: '8418'

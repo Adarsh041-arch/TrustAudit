@@ -1,0 +1,31 @@
+generator_version: 2.0.0
+document_id: INV-2026-0086
+doc_type: invoice
+cluster_id: cluster-10
+source: evaluation/golden_set/docs/INV-2026-0086.pdf
+description: 'Synthetic invoice, cluster cluster-10, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0086
+  vendor_gstin: 27SLQPL0394R8ZG
+  subtotal: '682800.00'
+  grand_total: '805704.00'
+  po_reference: PO-2026-1029
+expected_lines:
+- qty: '13'
+  rate: '18000.00'
+  total: '234000.00'
+  hsn: '8517'
+- qty: '19'
+  rate: '200.00'
+  total: '3800.00'
+  hsn: '9608'
+- qty: '18'
+  rate: '2500.00'
+  total: '45000.00'
+  hsn: '8471'
+- qty: '16'
+  rate: '25000.00'
+  total: '400000.00'
+  hsn: '8443'

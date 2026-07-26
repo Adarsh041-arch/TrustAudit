@@ -1,0 +1,42 @@
+generator_version: 2.0.0
+document_id: INV-2026-0105
+doc_type: invoice
+cluster_id: cluster-21
+source: evaluation/golden_set/docs/INV-2026-0105.pdf
+description: 'Synthetic invoice, cluster cluster-21, defects: [''invalid_tax_slab'']'
+defects:
+- invalid_tax_slab
+expected_findings:
+- check_id: CHK-ARITH-TAX-001
+  expected_status: FAIL
+  defect: invalid_tax_slab
+- check_id: CHK-THRESHOLD-TAXRATE-001
+  expected_status: FAIL
+  defect: invalid_tax_slab
+expected_fields:
+  document_id: INV-2026-0105
+  vendor_gstin: 21RIXYK5298L8ZW
+  subtotal: '331200.00'
+  grand_total: '457056.00'
+  po_reference: PO-2026-2190
+expected_lines:
+- qty: '4'
+  rate: '25000.00'
+  total: '100000.00'
+  hsn: '8443'
+- qty: '6'
+  rate: '18000.00'
+  total: '108000.00'
+  hsn: '8517'
+- qty: '18'
+  rate: '300.00'
+  total: '5400.00'
+  hsn: '4802'
+- qty: '18'
+  rate: '6500.00'
+  total: '117000.00'
+  hsn: '8504'
+- qty: '1'
+  rate: '800.00'
+  total: '800.00'
+  hsn: '8471'

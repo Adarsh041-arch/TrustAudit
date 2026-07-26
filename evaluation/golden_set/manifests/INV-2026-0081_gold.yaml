@@ -1,0 +1,35 @@
+generator_version: 2.0.0
+document_id: INV-2026-0081
+doc_type: invoice
+cluster_id: cluster-02
+source: evaluation/golden_set/docs/INV-2026-0081.pdf
+description: 'Synthetic invoice, cluster cluster-02, defects: [''gst_calc_error'']'
+defects:
+- gst_calc_error
+expected_findings:
+- check_id: CHK-ARITH-TAX-002
+  expected_status: FAIL
+  defect: gst_calc_error
+expected_fields:
+  document_id: INV-2026-0081
+  vendor_gstin: 27XVIBL1583A6ZR
+  subtotal: '162500.00'
+  grand_total: '192750.00'
+  po_reference: PO-2026-0247
+expected_lines:
+- qty: '15'
+  rate: '300.00'
+  total: '4500.00'
+  hsn: '4802'
+- qty: '5'
+  rate: '12000.00'
+  total: '60000.00'
+  hsn: '9403'
+- qty: '2'
+  rate: '11000.00'
+  total: '22000.00'
+  hsn: '8528'
+- qty: '8'
+  rate: '9500.00'
+  total: '76000.00'
+  hsn: '8418'

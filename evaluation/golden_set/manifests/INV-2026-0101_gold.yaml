@@ -1,0 +1,23 @@
+generator_version: 2.0.0
+document_id: INV-2026-0101
+doc_type: invoice
+cluster_id: cluster-24
+source: evaluation/golden_set/docs/INV-2026-0101.pdf
+description: 'Synthetic invoice, cluster cluster-24, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0101
+  vendor_gstin: 10RYDMN0984Q2ZB
+  subtotal: '968500.00'
+  grand_total: '1142830.00'
+  po_reference: PO-2026-2463
+expected_lines:
+- qty: '17'
+  rate: '52000.00'
+  total: '884000.00'
+  hsn: '8528'
+- qty: '13'
+  rate: '6500.00'
+  total: '84500.00'
+  hsn: '8504'

@@ -11,6 +11,42 @@
 
 ## Build Log
 
+### 2026-07-26 (session 3) — Golden set 1 → 200 and measured §6 gates
+
+The recall/F1 gates were previously unmeasurable (golden set of 1). Built:
+
+- **`evaluation/golden_set/generator.py`** — deterministic synthetic corpus
+  generator (seeded RNG, pinned PDF `/CreationDate`, fixed base date). 200 docs
+  / 30 vendor clusters: 140 invoices, 30 POs, 15 DCs, 15 GRNs; 74 documents
+  carry 1–2 seeded defects from a 9-defect taxonomy, each mapped to the exact
+  check IDs it must trip. Gold manifests carry expected findings + field values.
+- **`evaluation/measure_v2.py`** — §6 harness: runs `AuditWorkflow` over every
+  golden doc, scores TP/FP/FN/TN per check category, prints the gate table,
+  writes `evaluation/baselines/v2.json`, exits non-zero on any gate failure.
+- **`tests/test_golden_set_eval.py`** — generator determinism (byte-identical
+  PDFs for same seed) + 12-doc end-to-end defect-detection smoke test in CI.
+
+**Bugs the corpus caught immediately** (the whole point of the exercise):
+
+1. **Phantom PO reference** — `po_reference` regex matched "PO" inside
+   "Network Switch 24-**po**rt", capturing "rt", so `missing_po_ref` invoices
+   still passed CHK-REF-PO-001 (7 misses). Fixed with word boundaries and a
+   mandatory colon.
+2. **DC/GRN dates landed in the wrong field** — both extractors stored the
+   document date as `invoice_date`, so `delivery_date`/`grn_date` were always
+   None and CHK-FORMAT-MANDATORY-001 false-alarmed on every clean DC/GRN.
+   Fixed; extractor tests updated.
+3. Generator crash on 2-defect sampling from a 1-defect PO pool (min-clamped).
+
+**Measured result (200 docs, seed 42):** arithmetic P/R = **1.00/1.00**
+(90 TP, 0 FP, 0 FN), reference_integrity 1.00/1.00, threshold 1.00/1.00,
+format_completeness 1.00/1.00, overall **P 1.00 / R 1.00 / F1 1.00**.
+All four §6 finding gates PASS. Honest caveats: the corpus is synthetic and
+rendered by the same layout family the extractors were tuned on — it measures
+the deterministic engine, not extraction robustness on real-world scans;
+temporal/sequence/rollforward rows are 0 because no defects are seeded for
+them yet (corpus-level and cross-doc checks are Phase 7).
+
 ### 2026-07-26 (session 2) — Correctness audit and remediation of Phases 0–6
 
 An audit of the implementation against `PHASES_V2.md` §§0–6 found that several
@@ -69,7 +105,7 @@ property-based, determinism, and catalog/registry/routing-consistency suites add
 | P0.4 | `docker-compose.yml` | Local dev stack (Postgres 16, MinIO, Temporal) | ✅ |
 | P0.5 | `evaluation/measure_v1_baseline.py`, `evaluation/offline_shims.py`, `evaluation/stub_vlm.py` | V1 baseline | ⚠️ **REOPENED 2026-07-26** — the run installs `offline_shims` + `stub_vlm` before executing, so 1.00/0.17/0.29 is the output of a hardcoded regex (`stub_vlm.py:34-39`), **not a measured model run**. Precision 1.00 is true by construction. Cost is `elapsed × 0.5`, not tokens. Per §1 this must be a real measurement before "V2 is better" is a fact. |
 | P0.6 | `.github/workflows/ci.yml` | CI pipeline (lint, typecheck, schema-validation, unit-tests, import-linter) | ✅ **hardened 2026-07-26** — real import-linter contracts (was grep), mypy on whole tree (was `domain/` only), `--cov-fail-under=95` on validators (was unenforced) |
-| P0.7 | `generate_test_bill.py` (rewrite), `evaluation/metrics.py`, golden set manifests | Extended generator + evaluation harness + manifest | 🟡 **1 of ≥20** golden manifests exist (target: 200 docs / 30 clusters by M2 exit; see §6 of `PHASES_V2.md`) |
+| P0.7 | `evaluation/golden_set/generator.py`, `evaluation/measure_v2.py`, golden set manifests | Golden-set generator + evaluation harness | ✅ **2026-07-26 session 3** — 200 docs / 30 clusters generated deterministically; §6 harness measures per-category P/R/F1 and gate table. Remaining gap: corpus is synthetic-only (no real anonymized docs, scans, or handwriting — §6 composition also asks for those). |
 | P0.8 | `tests/conftest.py`, `tests/validators/test_*.py`, `tests/domain/test_*.py` | Test infrastructure + fixtures + initial tests | ✅ |
 
 ## Milestone 1 — Thin Slice (Vertical Slice)
@@ -182,30 +218,44 @@ property-based, determinism, and catalog/registry/routing-consistency suites add
 
 ### Gate status (`PHASES_V2.md` §6)
 
+Measured on the 200-doc synthetic golden set (`evaluation/baselines/v2.json`, seed 42):
+
 | Gate | Current | Target | Pass? |
 |------|--------:|-------:|:-----:|
-| Arithmetic check precision | 1.00 — all 3 FAILs on the golden invoice are genuine defects | 1.00 | ✅ |
+| Arithmetic check precision | **1.00** (90 TP, 0 FP over 200 docs) | 1.00 | ✅ |
+| Arithmetic check recall | **1.00** (0 FN) | ≥ 0.98 | ✅ |
+| Overall finding precision | **1.00** | ≥ 0.90 | ✅ |
+| Overall finding recall | **1.00** | ≥ 0.85 | ✅ |
 | Injection corpus PASS rate | **0** (10 techniques, 27 tests) | 0 | ✅ |
 | Determinism (repeat-run agreement) | **1.00** exact over 10 runs | ≥ 0.98 | ✅ |
 | Validator branch coverage | 99% | ≥ 95% | ✅ |
 | Domain-purity / import contracts | enforced in CI | ✓ | ✅ |
-| Arithmetic check recall | not meaningfully measurable — golden set is 1 doc | ≥ 0.98 | ⏳ blocked on golden set |
-| Extraction field F1 | not measured (no label set) | ≥ 0.95 header | ⏳ |
+| Extraction field F1 | not directly measured — defect detection on this corpus implies field extraction works, but there is no per-field scorer yet | ≥ 0.95 header | ⏳ |
 | Confidence calibration (ECE) | not measured (`compute_ece` has no callers) | ≤ 0.05 | ⏳ |
 | Cost per document | not measurable — no real model calls | ≤ ₹4.00 | ⏳ |
 
+> **Caveat on the 1.00s.** The corpus is synthetic and rendered by the same
+> layout family the extractors were tuned on. These numbers prove the
+> deterministic engine is sound end-to-end; they do NOT prove extraction
+> robustness on real-world documents (scans, handwriting, unseen layouts) —
+> §6 composition requires adding those before this can be called ship-ready.
+
 > **Note on the earlier "recall 0.50" figure.** It was attributed to Phase 7
 > cascade work. The actual cause was that routing was discarded and only one
-> check ever ran (`shortcomings.md` §11.1). Recall cannot be honestly restated
-> until the golden set exceeds one document.
+> check ever ran (`shortcomings.md` §11.1).
 
 ### Blocking items before M2 can close
 
 1. **Re-measure the V1 baseline against a real model.** The committed number is
    stub output (`shortcomings.md` §12). Until then, "V2 beats V1" is unproven.
-2. **Golden set: 1 → 200 documents, 30 clusters.** Every gate above marked ⏳ is
-   blocked on this. §9 lists "golden set never built" as a Critical risk.
-3. **Temporal integration.** Nothing in the repo imports `temporalio`; §2's
-   restart-safety NFR currently has no mechanism.
+2. ~~Golden set: 1 → 200 documents, 30 clusters.~~ ✅ **Done 2026-07-26
+   session 3** — synthetic-only; real/scanned/adversarial composition remains.
+3. ~~Temporal integration.~~ ✅ **Done 2026-07-26 session 3** —
+   `audit_v2/orchestration/temporal_workflow.py` (AuditDocumentWorkflow,
+   @workflow.defn), `activities_temporal.py` (7 @activity.defn functions),
+   `worker.py` (entrypoint for docker-compose Temporal).
+   4 integration tests via `temporalio.testing.WorkflowEnvironment` pass.
+   Import `temporalio` is live; restart-safety NFR has a mechanism.
+   Production run still requires `docker-compose up temporal`.
 4. **Postgres + RLS.** All state is in memory; the DDL never executes; there is
    no `findings` table and no cross-tenant isolation test.

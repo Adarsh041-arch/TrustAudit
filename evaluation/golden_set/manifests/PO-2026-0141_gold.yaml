@@ -1,0 +1,32 @@
+generator_version: 2.0.0
+document_id: PO-2026-0141
+doc_type: purchase_order
+cluster_id: cluster-06
+source: evaluation/golden_set/docs/PO-2026-0141.pdf
+description: 'Synthetic PO, cluster cluster-06, defects: [''line_item_error'']'
+defects:
+- line_item_error
+expected_findings:
+- check_id: CHK-ARITH-LINE-001
+  expected_status: FAIL
+  defect: line_item_error
+- check_id: CHK-ARITH-ROUNDING-001
+  expected_status: FAIL
+  defect: line_item_error
+expected_fields:
+  document_id: PO-2026-0141
+  vendor_gstin: 33TFPKB3826W4ZG
+  grand_total: '274500.00'
+expected_lines:
+- qty: '11'
+  rate: '18000.00'
+  total: '198000.00'
+  hsn: '8517'
+- qty: '1'
+  rate: '38000.00'
+  total: '38000.00'
+  hsn: '8415'
+- qty: '4'
+  rate: '9500.00'
+  total: '38500.00'
+  hsn: '8418'

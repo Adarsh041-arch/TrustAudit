@@ -1,0 +1,21 @@
+generator_version: 2.0.0
+document_id: PO-2026-0155
+doc_type: purchase_order
+cluster_id: cluster-29
+source: evaluation/golden_set/docs/PO-2026-0155.pdf
+description: 'Synthetic PO, cluster cluster-29, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0155
+  vendor_gstin: 37JZOSC4617Y4ZT
+  grand_total: '316800.00'
+expected_lines:
+- qty: '8'
+  rate: '38000.00'
+  total: '304000.00'
+  hsn: '8415'
+- qty: '16'
+  rate: '800.00'
+  total: '12800.00'
+  hsn: '8471'

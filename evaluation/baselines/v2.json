@@ -1,0 +1,101 @@
+{
+  "overall": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "per_category": {
+    "sequence": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 0
+    },
+    "temporal": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 0
+    },
+    "reference_integrity": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 32,
+      "fp": 0,
+      "fn": 0,
+      "tn": 573
+    },
+    "format_completeness": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 4,
+      "fp": 0,
+      "fn": 0,
+      "tn": 736
+    },
+    "arithmetic": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 90,
+      "fp": 0,
+      "fn": 0,
+      "tn": 810
+    },
+    "rollforward": {
+      "precision": 0.0,
+      "recall": 0.0,
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "tn": 0
+    },
+    "threshold": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "tn": 301
+    }
+  },
+  "documents": 200,
+  "statuses": {
+    "READY": 200
+  },
+  "errors": [],
+  "misses": [],
+  "false_alarms": [],
+  "gates": {
+    "arithmetic_precision": {
+      "value": 1.0,
+      "target": 1.0,
+      "pass": true
+    },
+    "arithmetic_recall": {
+      "value": 1.0,
+      "target": 0.98,
+      "pass": true
+    },
+    "overall_precision": {
+      "value": 1.0,
+      "target": 0.9,
+      "pass": true
+    },
+    "overall_recall": {
+      "value": 1.0,
+      "target": 0.85,
+      "pass": true
+    }
+  }
+}

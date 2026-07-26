@@ -1,0 +1,23 @@
+generator_version: 2.0.0
+document_id: INV-2026-0100
+doc_type: invoice
+cluster_id: cluster-17
+source: evaluation/golden_set/docs/INV-2026-0100.pdf
+description: 'Synthetic invoice, cluster cluster-17, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0100
+  vendor_gstin: 19SJLCR0367R8ZN
+  subtotal: '460000.00'
+  grand_total: '542800.00'
+  po_reference: PO-2026-1762
+expected_lines:
+- qty: '16'
+  rate: '25000.00'
+  total: '400000.00'
+  hsn: '8443'
+- qty: '5'
+  rate: '12000.00'
+  total: '60000.00'
+  hsn: '9403'

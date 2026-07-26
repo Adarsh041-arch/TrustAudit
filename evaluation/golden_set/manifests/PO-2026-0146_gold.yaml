@@ -1,0 +1,29 @@
+generator_version: 2.0.0
+document_id: PO-2026-0146
+doc_type: purchase_order
+cluster_id: cluster-08
+source: evaluation/golden_set/docs/PO-2026-0146.pdf
+description: 'Synthetic PO, cluster cluster-08, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0146
+  vendor_gstin: 20URHEC9515R5ZH
+  grand_total: '407200.00'
+expected_lines:
+- qty: '3'
+  rate: '18000.00'
+  total: '54000.00'
+  hsn: '8517'
+- qty: '10'
+  rate: '13500.00'
+  total: '135000.00'
+  hsn: '8472'
+- qty: '11'
+  rate: '200.00'
+  total: '2200.00'
+  hsn: '9608'
+- qty: '18'
+  rate: '12000.00'
+  total: '216000.00'
+  hsn: '9403'

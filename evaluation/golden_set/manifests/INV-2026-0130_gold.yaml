@@ -1,0 +1,36 @@
+generator_version: 2.0.0
+document_id: INV-2026-0130
+doc_type: invoice
+cluster_id: cluster-27
+source: evaluation/golden_set/docs/INV-2026-0130.pdf
+description: 'Synthetic invoice, cluster cluster-27, defects: [''grand_total_error'',
+  ''gst_calc_error'']'
+defects:
+- grand_total_error
+- gst_calc_error
+expected_findings:
+- check_id: CHK-ARITH-GRAND-001
+  expected_status: FAIL
+  defect: grand_total_error
+- check_id: CHK-ARITH-TAX-002
+  expected_status: FAIL
+  defect: gst_calc_error
+expected_fields:
+  document_id: INV-2026-0130
+  vendor_gstin: 32AJDJP2803G1ZK
+  subtotal: '424500.00'
+  grand_total: '501910.00'
+  po_reference: PO-2026-2717
+expected_lines:
+- qty: '10'
+  rate: '35000.00'
+  total: '350000.00'
+  hsn: '9403'
+- qty: '2'
+  rate: '13500.00'
+  total: '27000.00'
+  hsn: '8472'
+- qty: '19'
+  rate: '2500.00'
+  total: '47500.00'
+  hsn: '8471'

@@ -60,8 +60,8 @@ class TestDCExtractor:
         assert header.vendor_name.value == "Global Supplies Ltd, Pune"
         assert header.po_reference is not None
         assert header.po_reference.value == "PO-2026-0089"
-        assert header.invoice_date is not None
-        assert header.invoice_date.value == "2026-07-22"
+        assert header.delivery_date is not None
+        assert header.delivery_date.value == "2026-07-22"
 
     def test_extract_dc_line_items(self):
         from audit_v2.extraction.delivery_challan_extractor import (
@@ -104,8 +104,8 @@ class TestDCExtractor:
             all_pvs.append(doc.header.vendor_name)
         if doc.header.po_reference:
             all_pvs.append(doc.header.po_reference)
-        if doc.header.invoice_date:
-            all_pvs.append(doc.header.invoice_date)
+        if doc.header.delivery_date:
+            all_pvs.append(doc.header.delivery_date)
         if doc.header.buyer_name:
             all_pvs.append(doc.header.buyer_name)
         for li in doc.line_items:

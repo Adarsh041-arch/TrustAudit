@@ -1,0 +1,39 @@
+generator_version: 2.0.0
+document_id: INV-2026-0120
+doc_type: invoice
+cluster_id: cluster-15
+source: evaluation/golden_set/docs/INV-2026-0120.pdf
+description: 'Synthetic invoice, cluster cluster-15, defects: [''missing_bank'', ''missing_po_ref'']'
+defects:
+- missing_bank
+- missing_po_ref
+expected_findings:
+- check_id: CHK-REF-BANK-001
+  expected_status: FAIL
+  defect: missing_bank
+- check_id: CHK-REF-PO-001
+  expected_status: FAIL
+  defect: missing_po_ref
+expected_fields:
+  document_id: INV-2026-0120
+  vendor_gstin: 06HOOKR0846O5ZG
+  subtotal: '313900.00'
+  grand_total: '370402.00'
+  po_reference: null
+expected_lines:
+- qty: '1'
+  rate: '9500.00'
+  total: '9500.00'
+  hsn: '8418'
+- qty: '14'
+  rate: '15000.00'
+  total: '210000.00'
+  hsn: '8543'
+- qty: '4'
+  rate: '11000.00'
+  total: '44000.00'
+  hsn: '8528'
+- qty: '12'
+  rate: '4200.00'
+  total: '50400.00'
+  hsn: '8544'

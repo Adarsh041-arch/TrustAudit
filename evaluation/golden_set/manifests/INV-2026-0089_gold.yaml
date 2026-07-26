@@ -1,0 +1,39 @@
+generator_version: 2.0.0
+document_id: INV-2026-0089
+doc_type: invoice
+cluster_id: cluster-25
+source: evaluation/golden_set/docs/INV-2026-0089.pdf
+description: 'Synthetic invoice, cluster cluster-25, defects: [''missing_po_ref'']'
+defects:
+- missing_po_ref
+expected_findings:
+- check_id: CHK-REF-PO-001
+  expected_status: FAIL
+  defect: missing_po_ref
+expected_fields:
+  document_id: INV-2026-0089
+  vendor_gstin: 18GROME4664M5ZF
+  subtotal: '1037800.00'
+  grand_total: '1224604.00'
+  po_reference: null
+expected_lines:
+- qty: '10'
+  rate: '11000.00'
+  total: '110000.00'
+  hsn: '8528'
+- qty: '9'
+  rate: '4200.00'
+  total: '37800.00'
+  hsn: '8544'
+- qty: '16'
+  rate: '45000.00'
+  total: '720000.00'
+  hsn: '8471'
+- qty: '4'
+  rate: '6500.00'
+  total: '26000.00'
+  hsn: '8504'
+- qty: '8'
+  rate: '18000.00'
+  total: '144000.00'
+  hsn: '8517'

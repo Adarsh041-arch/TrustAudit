@@ -1,0 +1,23 @@
+generator_version: 2.0.0
+document_id: INV-2026-0031
+doc_type: invoice
+cluster_id: cluster-26
+source: evaluation/golden_set/docs/INV-2026-0031.pdf
+description: 'Synthetic invoice, cluster cluster-26, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0031
+  vendor_gstin: 09SIIGY6400N1ZN
+  subtotal: '347500.00'
+  grand_total: '410050.00'
+  po_reference: PO-2026-2695
+expected_lines:
+- qty: '18'
+  rate: '13500.00'
+  total: '243000.00'
+  hsn: '8472'
+- qty: '11'
+  rate: '9500.00'
+  total: '104500.00'
+  hsn: '8418'

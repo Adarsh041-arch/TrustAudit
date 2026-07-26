@@ -1,0 +1,38 @@
+generator_version: 2.0.0
+document_id: INV-2026-0129
+doc_type: invoice
+cluster_id: cluster-28
+source: evaluation/golden_set/docs/INV-2026-0129.pdf
+description: 'Synthetic invoice, cluster cluster-28, defects: [''missing_bank'', ''bad_gstin'']'
+defects:
+- missing_bank
+- bad_gstin
+expected_findings:
+- check_id: CHK-REF-BANK-001
+  expected_status: FAIL
+  defect: missing_bank
+- check_id: CHK-REF-GST-001
+  expected_status: FAIL
+  defect: bad_gstin
+- check_id: CHK-FORMAT-MANDATORY-001
+  expected_status: FAIL
+  defect: bad_gstin
+expected_fields:
+  document_id: INV-2026-0129
+  vendor_gstin: null
+  subtotal: '349200.00'
+  grand_total: '412056.00'
+  po_reference: PO-2026-2856
+expected_lines:
+- qty: '13'
+  rate: '13500.00'
+  total: '175500.00'
+  hsn: '8472'
+- qty: '18'
+  rate: '9500.00'
+  total: '171000.00'
+  hsn: '8418'
+- qty: '9'
+  rate: '300.00'
+  total: '2700.00'
+  hsn: '4802'

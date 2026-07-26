@@ -1,0 +1,25 @@
+generator_version: 2.0.0
+document_id: PO-2026-0164
+doc_type: purchase_order
+cluster_id: cluster-28
+source: evaluation/golden_set/docs/PO-2026-0164.pdf
+description: 'Synthetic PO, cluster cluster-28, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0164
+  vendor_gstin: 24QAAKD3307Y7ZU
+  grand_total: '127500.00'
+expected_lines:
+- qty: '1'
+  rate: '800.00'
+  total: '800.00'
+  hsn: '8471'
+- qty: '13'
+  rate: '9500.00'
+  total: '123500.00'
+  hsn: '8418'
+- qty: '16'
+  rate: '200.00'
+  total: '3200.00'
+  hsn: '9608'

@@ -1,0 +1,11 @@
+generator_version: 2.0.0
+document_id: DC-2026-0181
+doc_type: delivery_challan
+cluster_id: cluster-01
+source: evaluation/golden_set/docs/DC-2026-0181.pdf
+description: Synthetic DC, cluster cluster-01, clean
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: DC-2026-0181
+expected_lines: []

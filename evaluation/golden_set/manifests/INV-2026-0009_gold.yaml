@@ -1,0 +1,31 @@
+generator_version: 2.0.0
+document_id: INV-2026-0009
+doc_type: invoice
+cluster_id: cluster-00
+source: evaluation/golden_set/docs/INV-2026-0009.pdf
+description: 'Synthetic invoice, cluster cluster-00, defects: [''grand_total_error'']'
+defects:
+- grand_total_error
+expected_findings:
+- check_id: CHK-ARITH-GRAND-001
+  expected_status: FAIL
+  defect: grand_total_error
+expected_fields:
+  document_id: INV-2026-0009
+  vendor_gstin: 29TOLAB8958S8Z9
+  subtotal: '295400.00'
+  grand_total: '350572.00'
+  po_reference: PO-2026-0041
+expected_lines:
+- qty: '2'
+  rate: '25000.00'
+  total: '50000.00'
+  hsn: '8443'
+- qty: '12'
+  rate: '18000.00'
+  total: '216000.00'
+  hsn: '8517'
+- qty: '7'
+  rate: '4200.00'
+  total: '29400.00'
+  hsn: '8544'

@@ -1,6 +1,6 @@
 # Codebase Shortcomings
 
-> **Audit refresh 2026-07-26 (session 2).** Sections 1–10 below were written
+> **Audit refresh 2026-07-26 (session 3).** Sections 1–10 below were written
 > earlier and several are now **stale**; corrections are marked inline. See
 > §11 for what this session fixed and §12 for what genuinely remains.
 
@@ -125,7 +125,7 @@ The M1 vertical-slice thesis — *deterministic Python math over VLM extraction 
 | Golden manifest expects `CHK-FORMAT-WORDS-001` to FAIL. The check is model_assisted (`determinism: model_assisted` in catalog), so it is intentionally skipped by the deterministic dispatcher. | Phase 8 — adjudication |
 | 7 of 8 validator modules remain stubbed (`duplicate`, `format_completeness`, `reference_integrity`, `rollforward`, `sequence`, `temporal`, `threshold`). | Phase 6 completion |
 | No Temporal integration — `AuditWorkflow` is a regular Python class | Phase 0 (Temporal dev stack) + M2 |
-| Golden set is 1 manifest of the ≥200 required. | M0 still 🟡, M2 |
+| Golden set is 1 manifest of the ≥200 required. | ✅ **Done session 3** — 200 docs / 30 clusters via `evaluation/golden_set/generator.py` |
 
 ## 10. Cross-Cutting
 
@@ -255,11 +255,11 @@ all verdict-relevant fields.
 
 | Gap | Phase / milestone |
 |-----|-------------------|
-| **Not Temporal.** No `temporalio` import anywhere; `AuditWorkflow` is a plain class. No durable execution, replay, retry policy, or restart safety — §2's restart-safety NFR has no mechanism behind it. | Phase 0 / M2 |
+| ~~**Not Temporal.**~~ ✅ **Done session 3** — `AuditDocumentWorkflow` (`@workflow.defn`), 7 Temporal activities (`@activity.defn`), worker entrypoint, 4 integration tests via `WorkflowEnvironment`. Restart-safety NFR now has a mechanism. Requires `docker-compose up temporal` for production. | M2 |
 | **Nothing is persisted.** `MemoryDocumentStore` is the only implementation; `schema.py` DDL is never executed; there is no `findings` table; no `psycopg`/`sqlalchemy` anywhere. | M2 |
 | **No RLS.** §3.7 multi-tenancy is an in-memory `tenant_id ==` comparison. No `CREATE POLICY`, no cross-tenant CI test against a database. | Phase 2 |
 | **The V1 baseline is synthetic.** `measure_v1_baseline.py` installs `offline_shims` + `stub_vlm` before running; the "measured" 1.00/0.17/0.29 is the output of a hardcoded regex (`stub_vlm.py:34-39`), not a model. `estimated_cost_per_doc_inr` is `elapsed_seconds * 0.5`, not tokens. **§1 calls this the only number that makes "V2 is better" a fact — it is not yet a fact.** | M0 (reopen) |
-| **Golden set is 1 document** of the ≥200 / ≥30 clusters required. Invoice only; no PO/GRN/DC gold docs. The manifest lists `CHK-ARITH-LINE-001` as both expected FAIL and expected PASS. | M0/M2 |
+| ~~**Golden set is 1 document**~~ ✅ **Done session 3** — 200 docs / 30 vendor clusters (140 INV, 30 PO, 15 DC, 15 GRN; 74 with seeded defects from a 9-defect taxonomy). Measured on it: arithmetic P/R **1.00/1.00**, overall P/R/F1 **1.00/1.00/1.00** (`evaluation/baselines/v2.json`). The exercise immediately caught 2 extraction bugs (phantom PO-ref regex match inside "24-port"; DC/GRN dates stored in `invoice_date` so mandatory-field checks false-alarmed). **Remaining:** corpus is synthetic-only and shares the extractors' layout family — §6 also requires real anonymized docs, poor scans, handwriting, and adversarial composition; no per-field extraction-F1 scorer; no temporal/sequence/rollforward defects seeded (cross-doc, Phase 7). | real-doc composition: M2/M3 |
 | **No model integration at all.** `GeminiGateway.extract` returns `"{}"`; no SDK, no API key, no retry/cache/budget. Extraction is pure regex over PyMuPDF text. | M2/M3 |
 | **Scanned and image documents always fail.** All four extractors `raise ValueError("No extractable text found")`; images pass MIME validation then hit the same path. No OCR, no VLM fallback. | M3 |
 | **No observability.** Logging now exists in ~6 modules but there are still zero OpenTelemetry spans and zero metrics despite the SDK being a declared dependency. No health endpoint. | M2 |

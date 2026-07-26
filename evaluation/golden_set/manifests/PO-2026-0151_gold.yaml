@@ -1,0 +1,29 @@
+generator_version: 2.0.0
+document_id: PO-2026-0151
+doc_type: purchase_order
+cluster_id: cluster-10
+source: evaluation/golden_set/docs/PO-2026-0151.pdf
+description: 'Synthetic PO, cluster cluster-10, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0151
+  vendor_gstin: 27RCVXX6011R4ZO
+  grand_total: '306700.00'
+expected_lines:
+- qty: '10'
+  rate: '7500.00'
+  total: '75000.00'
+  hsn: '8523'
+- qty: '19'
+  rate: '300.00'
+  total: '5700.00'
+  hsn: '4802'
+- qty: '10'
+  rate: '13500.00'
+  total: '135000.00'
+  hsn: '8472'
+- qty: '14'
+  rate: '6500.00'
+  total: '91000.00'
+  hsn: '8504'

@@ -59,8 +59,8 @@ class TestGRNExtractor:
         assert header.vendor_name.value == "Global Supplies Ltd"
         assert header.po_reference is not None
         assert header.po_reference.value == "PO-2026-0089"
-        assert header.invoice_date is not None
-        assert header.invoice_date.value == "2026-07-25"
+        assert header.grn_date is not None
+        assert header.grn_date.value == "2026-07-25"
 
     def test_extract_grn_line_items(self):
         from audit_v2.extraction.grn_extractor import GRNExtractor
@@ -101,8 +101,8 @@ class TestGRNExtractor:
             all_pvs.append(doc.header.vendor_name)
         if doc.header.po_reference:
             all_pvs.append(doc.header.po_reference)
-        if doc.header.invoice_date:
-            all_pvs.append(doc.header.invoice_date)
+        if doc.header.grn_date:
+            all_pvs.append(doc.header.grn_date)
         for li in doc.line_items:
             all_pvs.extend([li.description, li.quantity, li.unit_price, li.line_total])
             if li.hsn_sac:

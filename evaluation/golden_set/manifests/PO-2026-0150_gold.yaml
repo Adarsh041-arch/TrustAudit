@@ -1,0 +1,29 @@
+generator_version: 2.0.0
+document_id: PO-2026-0150
+doc_type: purchase_order
+cluster_id: cluster-26
+source: evaluation/golden_set/docs/PO-2026-0150.pdf
+description: 'Synthetic PO, cluster cluster-26, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0150
+  vendor_gstin: 09LZOIS1677P1ZT
+  grand_total: '337000.00'
+expected_lines:
+- qty: '13'
+  rate: '2500.00'
+  total: '32500.00'
+  hsn: '8471'
+- qty: '3'
+  rate: '7500.00'
+  total: '22500.00'
+  hsn: '8523'
+- qty: '4'
+  rate: '12000.00'
+  total: '48000.00'
+  hsn: '9403'
+- qty: '13'
+  rate: '18000.00'
+  total: '234000.00'
+  hsn: '8517'
