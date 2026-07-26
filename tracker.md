@@ -11,6 +11,36 @@
 
 ## Build Log
 
+### 2026-07-26 (session 3b) — Temporal durable execution validated and integrated
+
+`AuditDocumentWorkflow` (`@workflow.defn`), 7 `@activity.defn` activities,
+worker entrypoint, and 5 integration tests via Temporal's time-skipping
+`WorkflowEnvironment`. The golden invoice reproduces the plain workflow's
+exact 3 FAILs through the Temporal path. Validation of the drafted files
+found and fixed before commit:
+
+- **`RetryPolicy(maximum_attempts=0)` means *unlimited* in Temporal** — a
+  crashing security scan would have retried forever. Now 1.
+- **`ValidateAndEmitResult.findings = list`** — default was the `list` type,
+  not an instance; every error path would have crashed. Now
+  `field(default_factory=list)` + regression test.
+- **Duplicated check logic** — the Temporal emit activity re-implemented the
+  routing/validation/finding block from `AuditWorkflow.run`. Extracted into
+  shared `run_checks_and_emit()` (`workflows.py`); both paths call it, so
+  they cannot drift. Full suite + 200-doc golden run re-verified after the
+  refactor.
+- `duplicate_of` carried the error string instead of the duplicate's
+  document_id; quarantine/FAILED statuses were not persisted on early exits;
+  POISON retry was 1 attempt where §3.3 says "1 retry then quarantine" (=2);
+  raw `update_status` bypassed the `transition_document` state-machine guard;
+  no-data path returned RECEIVED where the plain workflow returns READY.
+
+**Known ceilings (unchanged):** `MemoryDocumentStore` is per-worker-process —
+meaningless durability with a real Temporal server until Postgres lands; PDF
+bytes travel through workflow history (needs blob storage); the
+`docker-compose` server and the §7.4 worker-kill chaos test are still
+unexercised. Restart safety now has a *mechanism*, not yet a *proof*.
+
 ### 2026-07-26 (session 3) — Golden set 1 → 200 and measured §6 gates
 
 The recall/F1 gates were previously unmeasurable (golden set of 1). Built:
@@ -250,12 +280,12 @@ Measured on the 200-doc synthetic golden set (`evaluation/baselines/v2.json`, se
    stub output (`shortcomings.md` §12). Until then, "V2 beats V1" is unproven.
 2. ~~Golden set: 1 → 200 documents, 30 clusters.~~ ✅ **Done 2026-07-26
    session 3** — synthetic-only; real/scanned/adversarial composition remains.
-3. ~~Temporal integration.~~ ✅ **Done 2026-07-26 session 3** —
-   `audit_v2/orchestration/temporal_workflow.py` (AuditDocumentWorkflow,
-   @workflow.defn), `activities_temporal.py` (7 @activity.defn functions),
-   `worker.py` (entrypoint for docker-compose Temporal).
-   4 integration tests via `temporalio.testing.WorkflowEnvironment` pass.
-   Import `temporalio` is live; restart-safety NFR has a mechanism.
-   Production run still requires `docker-compose up temporal`.
+3. ~~Temporal integration.~~ ✅ **Done 2026-07-26 session 3b (validated)** —
+   `AuditDocumentWorkflow` + 7 activities + retry policies mapped to §3.3 +
+   5 tests via time-skipping `WorkflowEnvironment` (golden invoice reproduces
+   the plain workflow's 3 FAILs). Check logic shared with the plain workflow
+   via `run_checks_and_emit()` — no drift. Remaining for full §2 credit:
+   exercise the docker-compose server, pass the §7.4 worker-kill chaos test;
+   store durability blocked on item 4.
 4. **Postgres + RLS.** All state is in memory; the DDL never executes; there is
    no `findings` table and no cross-tenant isolation test.

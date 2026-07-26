@@ -30,6 +30,69 @@ from audit_v2.security.injection_detector import scan_document
 logger = logging.getLogger(__name__)
 
 
+def run_checks_and_emit(
+    normalized,
+    tenant_policy: str,
+    ruleset_version: str,
+    prompt_version: str,
+    model_version: str,
+):
+    """Route the document, run deterministic checks, and emit findings.
+
+    Shared by the plain `AuditWorkflow` and the Temporal
+    `validate_and_emit_activity` so the two paths cannot drift.
+    Returns `(findings, routing_decision)`.
+    """
+    doc_type = normalized.doc_type
+    total_value = None
+    if normalized.header.grand_total is not None:
+        total_value = Decimal(normalized.header.grand_total.value)
+
+    catalog = load_catalog()
+    by_id = entries_by_id(catalog)
+
+    # Only deterministic checks are dispatched here. model_assisted
+    # checks belong to the Phase 8 adjudicator.
+    catalog_check_ids = [
+        c.check_id
+        for c in catalog.checks
+        if c.determinism == CheckDeterminism.DETERMINISTIC
+        and doc_type in c.applies_to
+    ]
+    routing_decision = resolve(
+        doc_type, total_value, tenant_policy, catalog_check_ids,
+    )
+    logger.info(
+        "Routing %s: rule=%s included=%d skipped=%d",
+        normalized.document_id, routing_decision.rule_id,
+        len(routing_decision.included_check_ids),
+        len(routing_decision.skipped_check_ids),
+    )
+
+    runner = CheckRunner(catalog_checks=catalog.checks)
+    findings: list[Finding] = []
+    check_results = runner.run_all(
+        document=normalized,
+        included_check_ids=routing_decision.included_check_ids,
+        skipped_check_ids=routing_decision.skipped_check_ids,
+    )
+    for cr in check_results:
+        entry = by_id.get(cr.check_id)
+        if entry is None:
+            continue
+        finding = make_finding_from_result(
+            result=cr,
+            check_entry=entry,
+            document=normalized,
+            ruleset_version=ruleset_version,
+            prompt_version=prompt_version,
+            model_version=model_version,
+        )
+        findings.append(finding)
+
+    return findings, routing_decision
+
+
 @dataclass
 class AuditWorkflowInput:
     document_id: str
@@ -170,53 +233,13 @@ class AuditWorkflow:
                         failure_class=FailureClass.POLICY,
                     )
 
-                doc_type = normalized.doc_type
-                total_value = None
-                if normalized.header.grand_total is not None:
-                    total_value = Decimal(normalized.header.grand_total.value)
-
-                catalog = load_catalog()
-                by_id = entries_by_id(catalog)
-
-                # Only deterministic checks are dispatched here. model_assisted
-                # checks belong to the Phase 8 adjudicator.
-                catalog_check_ids = [
-                    c.check_id
-                    for c in catalog.checks
-                    if c.determinism == CheckDeterminism.DETERMINISTIC
-                    and doc_type in c.applies_to
-                ]
-                routing_decision = resolve(
-                    doc_type, total_value, inp.tenant_policy, catalog_check_ids,
+                stored_findings, routing_decision = run_checks_and_emit(
+                    normalized,
+                    tenant_policy=inp.tenant_policy,
+                    ruleset_version=inp.ruleset_version,
+                    prompt_version=inp.prompt_version,
+                    model_version=inp.model_version,
                 )
-                logger.info(
-                    "Routing %s: rule=%s included=%d skipped=%d",
-                    inp.document_id, routing_decision.rule_id,
-                    len(routing_decision.included_check_ids),
-                    len(routing_decision.skipped_check_ids),
-                )
-
-                runner = CheckRunner(catalog_checks=catalog.checks)
-
-                stored_findings: list[Finding] = []
-                check_results = runner.run_all(
-                    document=normalized,
-                    included_check_ids=routing_decision.included_check_ids,
-                    skipped_check_ids=routing_decision.skipped_check_ids,
-                )
-                for cr in check_results:
-                    entry = by_id.get(cr.check_id)
-                    if entry is None:
-                        continue
-                    finding = make_finding_from_result(
-                        result=cr,
-                        check_entry=entry,
-                        document=normalized,
-                        ruleset_version=inp.ruleset_version,
-                        prompt_version=inp.prompt_version,
-                        model_version=inp.model_version,
-                    )
-                    stored_findings.append(finding)
 
                 # PHASES_V2 §3.5: a document whose pages were not all examined
                 # cannot be reported as complete, regardless of findings.
