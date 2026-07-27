@@ -37,7 +37,7 @@ from audit_v2.orchestration.workflows import (
     AuditWorkflow,
     AuditWorkflowInput,
 )
-from evaluation.metrics import ConfusionMatrix, aggregate_metrics
+from evaluation.metrics import ConfusionMatrix, aggregate_metrics, compute_ece, determinism_score
 
 DOCS_DIR = REPO_ROOT / "evaluation" / "golden_set" / "docs"
 MANIFESTS_DIR = REPO_ROOT / "evaluation" / "golden_set" / "manifests"
@@ -109,6 +109,8 @@ async def run_document(manifest: dict) -> dict | None:
 def score_findings(
     manifest: dict, result: dict, matrices: dict[str, ConfusionMatrix],
     misses: list[dict], false_alarms: list[dict],
+    confidences: list[float], correct: list[bool],
+    run1_verdicts: dict[str, bool] | None = None,
 ) -> None:
     gold_fails = {
         ef["check_id"] for ef in manifest.get("expected_findings", [])
@@ -124,11 +126,18 @@ def score_findings(
         m = matrices[cat]
         if status not in ("PASS", "FAIL"):
             continue  # SKIPPED / NEEDS_REVIEW are not verdicts
+        if run1_verdicts is not None:
+            key = f"{manifest['document_id']}:{check_id}"
+            run1_verdicts[key] = (status == "PASS")
         if check_id in gold_fails:
             if status == "FAIL":
                 m.tp += 1
+                confidences.append(1.0)
+                correct.append(True)
             else:
                 m.fn += 1
+                confidences.append(1.0)
+                correct.append(False)
                 misses.append({
                     "document_id": manifest["document_id"],
                     "check_id": check_id,
@@ -137,6 +146,8 @@ def score_findings(
         else:
             if status == "FAIL":
                 m.fp += 1
+                confidences.append(1.0)
+                correct.append(False)
                 false_alarms.append({
                     "document_id": manifest["document_id"],
                     "check_id": check_id,
@@ -144,10 +155,14 @@ def score_findings(
                 })
             else:
                 m.tn += 1
+                confidences.append(1.0)
+                correct.append(True)
 
     # Gold FAILs the pipeline never emitted a verdict for are misses too.
     for check_id in gold_fails - set(emitted):
         matrices[category_of(check_id)].fn += 1
+        confidences.append(1.0)
+        correct.append(False)
         misses.append({
             "document_id": manifest["document_id"],
             "check_id": check_id,
@@ -219,6 +234,9 @@ async def main_async(args: argparse.Namespace) -> dict:
     statuses: dict[str, int] = defaultdict(int)
     errors: list[dict] = []
     field_stats: dict = {}
+    confidences: list[float] = []
+    correct: list[bool] = []
+    run1_verdicts: dict[str, bool] = {}
 
     for i, manifest in enumerate(manifests, 1):
         result = await run_document(manifest)
@@ -231,11 +249,24 @@ async def main_async(args: argparse.Namespace) -> dict:
             errors.append({"document_id": manifest["document_id"],
                            "error": result["error"]})
             continue
-        score_findings(manifest, result, matrices, misses, false_alarms)
+        score_findings(manifest, result, matrices, misses, false_alarms,
+                       confidences, correct, run1_verdicts)
         score_extraction(manifest, result, field_stats)
         if args.verbose and i % 25 == 0:
             print(f"  ... {i}/{len(manifests)}")
 
+    ece = compute_ece(confidences, correct)
+
+    # Second pass for determinism
+    run2_verdicts: dict[str, bool] = {}
+    for manifest in manifests:
+        result = await run_document(manifest)
+        if result and not result["error"]:
+            for f in result["findings"]:
+                if f["status"] in ("PASS", "FAIL"):
+                    run2_verdicts[f"{manifest['document_id']}:{f['check_id']}"] = (f["status"] == "PASS")
+
+    determinism = determinism_score(run1_verdicts, run2_verdicts)
     report = aggregate_metrics(dict(matrices))
     report["documents"] = len(manifests)
     report["statuses"] = dict(statuses)
@@ -282,6 +313,14 @@ async def main_async(args: argparse.Namespace) -> dict:
             "target": 0.95,
             "pass": (report.get("extraction", {}).get("f1") or 0) >= 0.95,
         },
+        "ece": {
+            "value": round(ece, 4), "target": 0.05,
+            "pass": ece <= 0.05,
+        },
+        "determinism": {
+            "value": round(determinism, 4), "target": 1.0,
+            "pass": determinism == 1.0,
+        },
     }
     return report
 
@@ -308,6 +347,11 @@ def print_report(report: dict) -> None:
     for name, g in report["gates"].items():
         mark = "PASS" if g["pass"] else "FAIL"
         print(f"  [{mark}] {name}: {g['value']} (target {g['target']})")
+
+    if "ece" in report.get("gates", {}):
+        print(f"  ECE: {report['gates']['ece']['value']}")
+    if "determinism" in report.get("gates", {}):
+        print(f"  Determinism: {report['gates']['determinism']['value']}")
 
     if report.get("extraction"):
         print(f"\nExtraction field F1: {report['extraction']['f1']:.4f}"
