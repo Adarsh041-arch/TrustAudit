@@ -24,6 +24,7 @@ import asyncio
 import json
 import sys
 from collections import defaultdict
+from decimal import Decimal
 from pathlib import Path
 
 import yaml
@@ -101,6 +102,7 @@ async def run_document(manifest: dict) -> dict | None:
              if hasattr(f.status, "value") else str(f.status)}
             for f in out.findings
         ],
+        "document": out.document.model_dump() if out.document else None,
     }
 
 
@@ -154,12 +156,54 @@ def score_findings(
         })
 
 
+def _decimal_equal(a: str, b: str, tolerance: str | None = None) -> bool:
+    if a is None or b is None:
+        return a == b
+    try:
+        da = Decimal(a.replace(",", ""))
+        db = Decimal(b.replace(",", ""))
+        if tolerance:
+            return abs(da - db) <= Decimal(tolerance)
+        return da == db
+    except Exception:
+        return a.strip().casefold() == b.strip().casefold()
+
+
 def score_extraction(manifest: dict, result: dict, field_stats: dict) -> None:
-    """Header-field extraction scored via the checks' observable behaviour is
-    indirect; here we only count coverage of expected_findings — field-level
-    F1 needs direct access to the extracted document, done in v2 via a
-    dedicated extraction scorer (see measure_extraction()).
-    """
+    doc = result.get("document")
+    if doc is None:
+        return
+    header = doc.get("header", {})
+    gold_fields = manifest.get("expected_fields", {})
+    gold_lines = manifest.get("expected_lines", [])
+
+    for field_key, gold_value in gold_fields.items():
+        extracted = header.get(field_key)
+        extracted_str = ""
+        if isinstance(extracted, dict):
+            extracted_str = extracted.get("text", extracted.get("decimal_value", "")) or ""
+        elif extracted is not None:
+            extracted_str = str(extracted)
+
+        match = _decimal_equal(extracted_str, str(gold_value)) if gold_value is not None else (extracted is None)
+        field_stats.setdefault(field_key, {"tp": 0, "fp": 0, "fn": 0})
+        if match:
+            field_stats[field_key]["tp"] += 1
+        else:
+            field_stats[field_key]["fn"] += 1
+            if extracted_str:
+                field_stats[field_key]["fp"] += 1
+
+    extracted_lines = doc.get("line_items", [])
+    gold_tuples = {(l["qty"], l["rate"], l["total"], l.get("hsn", ""))
+                   for l in gold_lines}
+    ext_tuples = {(l.get("qty", ""), l.get("rate", ""), l.get("total", ""),
+                   l.get("hsn", "")) for l in extracted_lines}
+    line_matches = len(gold_tuples & ext_tuples)
+    field_stats.setdefault("lines", {"tp": 0, "fp": 0, "fn": 0})
+    field_stats["lines"]["tp"] += line_matches
+    field_stats["lines"]["fn"] += len(gold_tuples) - line_matches
+    field_stats["lines"]["fp"] += len(ext_tuples) - line_matches
 
 
 async def main_async(args: argparse.Namespace) -> dict:
@@ -174,6 +218,7 @@ async def main_async(args: argparse.Namespace) -> dict:
     false_alarms: list[dict] = []
     statuses: dict[str, int] = defaultdict(int)
     errors: list[dict] = []
+    field_stats: dict = {}
 
     for i, manifest in enumerate(manifests, 1):
         result = await run_document(manifest)
@@ -187,6 +232,7 @@ async def main_async(args: argparse.Namespace) -> dict:
                            "error": result["error"]})
             continue
         score_findings(manifest, result, matrices, misses, false_alarms)
+        score_extraction(manifest, result, field_stats)
         if args.verbose and i % 25 == 0:
             print(f"  ... {i}/{len(manifests)}")
 
@@ -196,6 +242,22 @@ async def main_async(args: argparse.Namespace) -> dict:
     report["errors"] = errors
     report["misses"] = misses
     report["false_alarms"] = false_alarms
+
+    def _compute_f1(tp: int, fp: int, fn: int) -> float:
+        prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        rec = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+        return 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+
+    total_tp = sum(v["tp"] for v in field_stats.values())
+    total_fp = sum(v["fp"] for v in field_stats.values())
+    total_fn = sum(v["fn"] for v in field_stats.values())
+    report["extraction"] = {
+        "f1": round(_compute_f1(total_tp, total_fp, total_fn), 4),
+        "tp": total_tp,
+        "fp": total_fp,
+        "fn": total_fn,
+        "fields": field_stats,
+    }
 
     arith = report["per_category"].get("arithmetic", {})
     report["gates"] = {
@@ -214,6 +276,11 @@ async def main_async(args: argparse.Namespace) -> dict:
         "overall_recall": {
             "value": report["overall"]["recall"], "target": 0.85,
             "pass": report["overall"]["recall"] >= 0.85,
+        },
+        "extraction_f1": {
+            "value": round(report["extraction"]["f1"], 4) if report.get("extraction") else 0.0,
+            "target": 0.95,
+            "pass": (report.get("extraction", {}).get("f1") or 0) >= 0.95,
         },
     }
     return report
@@ -241,6 +308,12 @@ def print_report(report: dict) -> None:
     for name, g in report["gates"].items():
         mark = "PASS" if g["pass"] else "FAIL"
         print(f"  [{mark}] {name}: {g['value']} (target {g['target']})")
+
+    if report.get("extraction"):
+        print(f"\nExtraction field F1: {report['extraction']['f1']:.4f}"
+              f"  (TP={report['extraction']['tp']}, "
+              f"FP={report['extraction']['fp']}, "
+              f"FN={report['extraction']['fn']})")
 
     if report["misses"]:
         print(f"\nMissed defects ({len(report['misses'])}):")
