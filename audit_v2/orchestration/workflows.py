@@ -9,6 +9,7 @@ from audit_v2.domain.finding_generator import make_finding_from_result
 from audit_v2.domain.models import (
     CheckDeterminism,
     DocumentStatus,
+    ExtractedDocument,
     FailureClass,
     Finding,
 )
@@ -116,6 +117,7 @@ class AuditWorkflowOutput:
     error: str | None = None
     routing_rule_id: str | None = None
     failure_class: FailureClass | None = None
+    document: ExtractedDocument | None = None
 
 
 class AuditWorkflow:
@@ -253,6 +255,7 @@ class AuditWorkflow:
                     findings=stored_findings,
                     status=final_status,
                     routing_rule_id=routing_decision.rule_id,
+                    document=normalized,
                 )
 
             store.update_status(inp.document_id, "READY")
