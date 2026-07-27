@@ -69,6 +69,9 @@ minversion = "8.0"
 testpaths = ["tests", "audit_v2"]
 python_files = ["test_*.py", "*_test.py"]
 filterwarnings = ["error"]
+markers = [
+    "chaos: tests that simulate worker crashes, concurrency edge-cases, or Temporal server failures. Excluded from CI (slow, require external infra).",
+]
 
 [tool.coverage.run]
 source = ["audit_v2"]

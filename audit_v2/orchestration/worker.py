@@ -17,7 +17,7 @@ from dotenv import load_dotenv
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from audit_v2.ingestion.document_store import MemoryDocumentStore
+from audit_v2.ingestion.document_store import MemoryDocumentStore, PostgresDocumentStore
 from audit_v2.orchestration.activities_temporal import (
     extract_activity,
     fetch_document,
@@ -29,6 +29,8 @@ from audit_v2.orchestration.activities_temporal import (
     validate_and_emit_activity,
 )
 from audit_v2.orchestration.temporal_workflow import AuditDocumentWorkflow
+from audit_v2.persistence.db import connect as pg_connect
+from audit_v2.persistence.db import apply_schema
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,10 +41,22 @@ TASK_QUEUE = os.getenv("TEMPORAL_TASK_QUEUE", "audit-documents")
 TEMPORAL_HOST = os.getenv("TEMPORAL_HOST", "localhost:7233")
 
 
+def _build_store() -> MemoryDocumentStore | PostgresDocumentStore:
+    dsn = os.getenv("AUDIT_PG_DSN")
+    if dsn:
+        conn = pg_connect(dsn)
+        apply_schema(conn)
+        tenant_id = os.getenv("AUDIT_TENANT_ID", "default")
+        logger.info("Using PostgresDocumentStore (tenant=%s)", tenant_id)
+        return PostgresDocumentStore(conn, tenant_id)
+    logger.info("Using MemoryDocumentStore")
+    return MemoryDocumentStore()
+
+
 async def main() -> None:
     client = await Client.connect(TEMPORAL_HOST)
 
-    store = MemoryDocumentStore()
+    store = _build_store()
     set_activity_store(store)
 
     worker = Worker(

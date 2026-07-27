@@ -5,11 +5,13 @@ from app.state import AuditState
 
 
 def main():
-    api_key = os.getenv("GOOGLE_API_KEY")
-    if not api_key:
-        print("GOOGLE_API_KEY environment variable not set.")
-        print("Set it with:  $env:GOOGLE_API_KEY = 'your-key-here'  (PowerShell)")
-        return
+    provider = os.getenv("LLM_PROVIDER", "google")
+    if provider != "ollama":
+        api_key = os.getenv("GOOGLE_API_KEY")
+        if not api_key:
+            print("GOOGLE_API_KEY environment variable not set.")
+            print("Set it with:  $env:GOOGLE_API_KEY = 'your-key-here'  (PowerShell)")
+            return
 
     graph = build_graph()
 

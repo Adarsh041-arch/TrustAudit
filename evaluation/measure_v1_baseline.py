@@ -29,17 +29,36 @@ import sys
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "evaluation"))
 
+# Load .env so a real GOOGLE_API_KEY is visible before deciding on stubs.
 try:
-    from offline_shims import install_offline_shims
-    install_offline_shims()
+    from dotenv import load_dotenv
+    load_dotenv(REPO_ROOT / ".env")
 except Exception:
     pass
 
-try:
-    from stub_vlm import install_stub_if_no_key
-    install_stub_if_no_key()
-except Exception:
-    pass
+import os
+
+# Offline shims replace the Gemini client with a canned stub. Installing them
+# when a real key exists silently turns a "measured baseline" into stub output
+# (this is exactly what invalidated the first committed baseline). Only stub
+# when there is genuinely no key, or when --offline is passed explicitly.
+_provider = os.getenv("LLM_PROVIDER", "google")
+_KEY_VAR = {"nvidia": "NVIDIA_API_KEY", "ollama": None}.get(_provider, "GOOGLE_API_KEY")
+_HAS_REAL_KEY = _KEY_VAR is None or bool(os.getenv(_KEY_VAR))
+_OFFLINE = "--offline" in sys.argv
+if _OFFLINE:
+    _HAS_REAL_KEY = False
+if not _HAS_REAL_KEY:
+    try:
+        from offline_shims import install_offline_shims
+        install_offline_shims()
+    except Exception:
+        pass
+    try:
+        from stub_vlm import install_stub_if_no_key
+        install_stub_if_no_key()
+    except Exception:
+        pass
 
 
 @dataclass
@@ -94,6 +113,10 @@ def _run_v1_on_document(doc_path: Path, doc_type: str) -> dict[str, Any]:
             try:
                 return _real_get()
             except Exception:
+                if _HAS_REAL_KEY:
+                    # With a real key, a client failure is a measurement error,
+                    # not a cue to silently substitute the stub.
+                    raise
                 from stub_vlm import StubVLMClient
                 return StubVLMClient()
 
@@ -107,17 +130,28 @@ def _run_v1_on_document(doc_path: Path, doc_type: str) -> dict[str, Any]:
         else:
             checklist = AuditChecklist(audit_name="Default", version="1.0", rules=[])
 
-        state = AuditState(
-            uploaded_folder=str(doc_path.parent),
-            documents=[str(doc_path)],
-            document_summaries=[],
-            audit_checklist=checklist,
-            audit_results=[],
-            processing_index=0,
-        )
+        # V1's upload_folder_node rescans uploaded_folder and overwrites
+        # state.documents — pointing it at the shared golden-set dir would
+        # audit all 200 docs per "single-doc" run. Isolate the doc in a
+        # temp dir so the graph only sees the document under test.
+        import shutil
+        import tempfile
 
-        graph = build_graph()
-        result_state = graph.invoke(state)
+        with tempfile.TemporaryDirectory(prefix="v1_baseline_") as tmp_dir:
+            tmp_doc = Path(tmp_dir) / doc_path.name
+            shutil.copyfile(doc_path, tmp_doc)
+
+            state = AuditState(
+                uploaded_folder=tmp_dir,
+                documents=[str(tmp_doc)],
+                document_summaries=[],
+                audit_checklist=checklist,
+                audit_results=[],
+                processing_index=0,
+            )
+
+            graph = build_graph()
+            result_state = graph.invoke(state)
 
         results = result_state.get("audit_results", []) or []
         if results:
@@ -218,11 +252,30 @@ def main() -> None:
         default=BASELINES_DIR / "v1.json",
         help="Output path for baseline JSON",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Measure at most N documents (real model calls cost money)",
+    )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="Force stub VLM (no model calls); baseline is labeled measurement_mode=stub",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Concurrent documents (each doc is an independent graph run)",
+    )
     args = parser.parse_args()
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
     manifests = _load_manifests()
+    if args.limit:
+        manifests = manifests[: args.limit]
     if not manifests:
         print(f"WARNING: no manifests found in {MANIFESTS_DIR}", file=sys.stderr)
         baseline = {
@@ -245,12 +298,11 @@ def main() -> None:
             json.dump(baseline, f, indent=2)
         return
 
-    results: list[dict[str, Any]] = []
-    for gd in manifests:
+    def _measure(gd: GoldenDoc) -> dict[str, Any]:
         print(f"  Measuring V1 on {gd.source_path.name} ...", file=sys.stderr)
         run = _run_v1_on_document(gd.source_path, gd.doc_type)
         scoring = _score_against_gold(gd.expected, run["findings"])
-        per_doc = {
+        return {
             "document": gd.source_path.name,
             "document_id_gold": gd.document_id,
             "doc_type": gd.doc_type,
@@ -274,7 +326,11 @@ def main() -> None:
             "estimated_cost_inr": round(run["elapsed_seconds"] * 0.5, 4),
             "error": run["error"],
         }
-        results.append(per_doc)
+
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
+        results = list(pool.map(_measure, manifests))
 
     successful = sum(1 for r in results if r["error"] is None)
     avg_latency = (
@@ -291,6 +347,17 @@ def main() -> None:
     baseline = {
         "version": "1",
         "measured_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "measurement_mode": "real_model" if _HAS_REAL_KEY else "stub",
+        "provider": _provider if _HAS_REAL_KEY else "stub",
+        "model": (
+            os.getenv(
+                "GEMINI_MODEL",
+                "google/diffusiongemma-26b-a4b-it" if _provider == "nvidia" else "gemini-2.5-flash",
+            )
+            if _HAS_REAL_KEY
+            else "stub_vlm"
+        ),
+        "corpus_note": "synthetic golden set (evaluation/golden_set), no real scanned documents",
         "documents_count": len(results),
         "documents_successful": successful,
         "average_latency_seconds": round(avg_latency, 4),
