@@ -271,5 +271,5 @@ all verdict-relevant fields.
 | `MemoryDocumentStore` has no thread/async safety; `create` only increments `_counter` on the non-duplicate path, so duplicates collide on generated id. | M2 |
 | `MemoryVectorStore.search` ignores both the query vector and `tenant_id` — it is not a vector search, and post-filtering by tenant would leak neighbours anyway (§3.7). | M4 |
 | `pii_redactor` exists with 13 tests but **is called by nothing** — the gateway does not redact before model calls, contrary to its own docstring. | Phase 2 |
-| `evaluation/metrics.py` (`compute_ece`, `determinism_score`) has no callers. No ECE calibration measurement. | M2 |
+| ~~`evaluation/metrics.py` (`compute_ece`, `determinism_score`) has no callers.~~ ✅ **Done 2026-07-27** — wired into `measure_v2.py`. ECE=0.00 (deterministic-only), determinism=1.00 (100% repeatable). Extraction field scorer also added (F1=0.00 currently — genuine measurement that extraction needs improvement). All 3 appear in gates table. | M2 — done |
 | Extraction regexes remain Indian-GST-shaped and brittle (§1 above still largely applies). Unparseable line items are still dropped silently. | M3 |

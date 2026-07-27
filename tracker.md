@@ -313,7 +313,14 @@ Measured on the 200-doc synthetic golden set (`evaluation/baselines/v2.json`, se
    auto-detects the store. docker-compose Temporal image tag fixed from
    1.26-alpine (nonexistent) to `latest` (requires `temporal.yaml` config
    mount — `docker-compose.yml` has it commented out). `chaos` marker
-   registered in pyproject.toml and excluded from CI.
+    registered in pyproject.toml and excluded from CI.
+6. ~~**M2.4 (§6 harness gaps).** Extraction F1 scorer, ECE calibration,
+   determinism measurement wired into `measure_v2.py`.~~ ✅ **Done 2026-07-27**
+   — `score_extraction()` compares `expected_fields` + `expected_lines` from
+   golden manifests against real `ExtractedDocument`. ECE=0.0 (all deterministic),
+   determinism=1.0 (perfect replay), extraction F1=0.00 (genuine — extraction
+   needs improvement). `AuditWorkflowOutput.document` exposed for scoring.
+   328 tests + 3 chaos all passing.
 
 **Session 2026-07-27 late — M2.3 (chaos) + M2.2 residual**
 - `audit_v2/persistence/__init__.py` populated with exports.
@@ -323,5 +330,10 @@ Measured on the 200-doc synthetic golden set (`evaluation/baselines/v2.json`, se
 - `.env` updated with `AUDIT_PG_DSN`, `AUDIT_PG_APP_DSN`, `TEMPORAL_*`.
 - docker-compose Temporal section updated but disabled pending config mount.
 - `chaos` marker registered in `pyproject.toml`.
-- **Next:** M2.4 — wire `compute_ece()` into `measure_v2.py`, add per-field
-  scorer vs golden manifest. Then M2.5 golden-set composition.
+ **Session 2026-07-27 — M2.4 (harness gaps)**
+- `audit_v2/orchestration/workflows.py`: added `document: ExtractedDocument | None` to `AuditWorkflowOutput`, populated on success path.
+- `evaluation/measure_v2.py`: implemented `_decimal_equal()`, `score_extraction()` (compares `expected_fields`/`expected_lines` from golden manifest vs extracted document), wired `compute_ece()` + `determinism_score()` via second pass. Added extraction F1 (0.0 — genuine: extraction needs work), ECE (0.0 — all deterministic), determinism (1.0 — perfect replay) gates.
+- `shortcomings.md` §12: deprecated `compute_ece`/`determinism_score` callers gap.
+- `docs/superpowers/specs/2026-07-27-m2-4-harness-gaps-design.md`: design doc.
+- `docs/superpowers/plans/2026-07-27-m2-4-harness-gaps.md`: implementation plan.
+- **Next:** M2.5 golden-set composition with real/scanned/adversarial docs.
