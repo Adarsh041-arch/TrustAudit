@@ -21,12 +21,29 @@ class TestServerV2:
             pdf_bytes = f.read()
         res = client.post(
             "/api/v2/audit/upload",
-            files={"file": ("invoice.pdf", pdf_bytes, "application/pdf")},
+            files=[("files", ("invoice.pdf", pdf_bytes, "application/pdf"))],
         )
         assert res.status_code == 200
         body = res.json()
-        assert "document" in body
+        assert "documents" in body
+        assert body["count"] >= 1
         assert "is_vlm_fallback" in body
+
+    def test_upload_multi_document_batch(self):
+        with open("sample_docs/INV-2026-0715_NewTech_Solutions.pdf", "rb") as f:
+            pdf_bytes = f.read()
+        res = client.post(
+            "/api/v2/audit/upload",
+            files=[
+                ("files", ("invoice1.pdf", pdf_bytes, "application/pdf")),
+                ("files", ("invoice2.pdf", pdf_bytes, "application/pdf")),
+            ],
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["count"] == 2
+        assert len(body["documents"]) == 2
+
 
 
     def test_audit_log_endpoint(self):

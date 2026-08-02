@@ -95,145 +95,162 @@ def health_check() -> dict[str, Any]:
 
 
 @app.post("/api/v2/audit/upload")
-async def upload_document(
-    file: UploadFile = File(...),
+async def upload_documents(
+    files: list[UploadFile] = File(...),
     tenant_id: str = "tenant_default",
 ) -> dict[str, Any]:
-    data = await file.read()
-    document_id = f"doc_{uuid.uuid4().hex[:8]}"
-    mime_type = file.content_type or "application/pdf"
+    if not files:
+        raise HTTPException(status_code=400, detail="No files provided for upload")
 
-    res = extract_document(
-        data=data,
-        document_id=document_id,
-        tenant_id=tenant_id,
-        mime_type=mime_type,
-    )
+    ingested_docs: list[ExtractedDocument] = []
+    extraction_results: list[dict[str, Any]] = []
 
-    if res.error or res.document is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Extraction failed: {res.error or 'Unknown extraction error'}",
+    for file in files:
+        data = await file.read()
+        document_id = f"doc_{uuid.uuid4().hex[:8]}"
+        mime_type = file.content_type or "application/pdf"
+
+        res = extract_document(
+            data=data,
+            document_id=document_id,
+            tenant_id=tenant_id,
+            mime_type=mime_type,
         )
 
-    doc = res.document
-    DOCUMENTS_STORE[doc.document_id] = doc
+        if res.error or res.document is None:
+            logger.warning("Failed to extract file %s: %s", file.filename, res.error)
+            continue
 
-    # Log ingestion in hash-chained audit log
-    AUDIT_LOG.log(
-        entry_id=f"log_{uuid.uuid4().hex[:8]}",
-        tenant_id=tenant_id,
-        action="document_ingested",
-        resource_type=Resource.DOCUMENT,
-        resource_id=doc.document_id,
-        actor_id="system",
-        payload={
+        doc = res.document
+        DOCUMENTS_STORE[doc.document_id] = doc
+        ingested_docs.append(doc)
+        extraction_results.append({
             "filename": file.filename,
+            "document_id": doc.document_id,
             "doc_type": doc.doc_type.value,
+            "is_vlm_fallback": doc.extractor_version.startswith("vlm"),
             "extractor_version": doc.extractor_version,
             "pages": doc.page_count,
-        },
-    )
+        })
 
-    # Perform cluster correlation & three-way match across stored corpus
+        AUDIT_LOG.log(
+            entry_id=f"log_{uuid.uuid4().hex[:8]}",
+            tenant_id=tenant_id,
+            action="document_ingested",
+            resource_type=Resource.DOCUMENT,
+            resource_id=doc.document_id,
+            actor_id="system",
+            payload={
+                "filename": file.filename,
+                "doc_type": doc.doc_type.value,
+                "extractor_version": doc.extractor_version,
+                "pages": doc.page_count,
+            },
+        )
+
+    if not ingested_docs:
+        raise HTTPException(status_code=400, detail="Failed to extract any uploaded documents")
+
+    # Perform cluster correlation & three-way match across entire updated corpus
     all_docs = list(DOCUMENTS_STORE.values())
     clusters = build_clusters(all_docs)
     corpus_index = build_corpus_index(all_docs)
 
-    new_findings: list[Finding] = []
-    target_cluster = None
-    for c in clusters:
-        if any(d.document_id == doc.document_id for d in c.documents):
-            target_cluster = c
-            break
+    batch_findings: list[Finding] = []
 
-    if target_cluster is not None:
-        # Run three-way match validators
-        results = []
-        if doc.doc_type == DocumentType.INVOICE:
-            for check_id, validator_fn in [
-                ("CHK-XDOC-QTY-001", check_invoiced_vs_received),
-                ("CHK-XDOC-PRICE-001", check_price_matches_po),
-                ("CHK-XDOC-RECEIPT-001", check_receipt_exists),
-                ("CHK-XDOC-CUMUL-001", check_cumulative_invoiced),
-                ("CHK-DUP-DOC-001", check_duplicate_document),
-            ]:
-                entry = CATALOG_BY_ID.get(check_id)
-                if entry is not None:
-                    ctx = CheckContext(
-                        document=doc,
-                        check_entry=entry,
-                        cluster=target_cluster,
-                        corpus_index=corpus_index,
+    for doc in ingested_docs:
+        target_cluster = None
+        for c in clusters:
+            if any(d.document_id == doc.document_id for d in c.documents):
+                target_cluster = c
+                break
+
+        if target_cluster is not None:
+            results = []
+            if doc.doc_type == DocumentType.INVOICE:
+                for check_id, validator_fn in [
+                    ("CHK-XDOC-QTY-001", check_invoiced_vs_received),
+                    ("CHK-XDOC-PRICE-001", check_price_matches_po),
+                    ("CHK-XDOC-RECEIPT-001", check_receipt_exists),
+                    ("CHK-XDOC-CUMUL-001", check_cumulative_invoiced),
+                    ("CHK-DUP-DOC-001", check_duplicate_document),
+                ]:
+                    entry = CATALOG_BY_ID.get(check_id)
+                    if entry is not None:
+                        ctx = CheckContext(
+                            document=doc,
+                            check_entry=entry,
+                            cluster=target_cluster,
+                            corpus_index=corpus_index,
+                        )
+                        results.append(validator_fn(ctx))
+
+            for r in results:
+                if r.status != FindingStatus.SKIPPED:
+                    entry = CATALOG_BY_ID.get(r.check_id) or CheckCatalogEntry(
+                        check_id=r.check_id,
+                        name=r.check_id,
+                        description=r.message,
+                        category="three_way_match",
+                        applies_to=[doc.doc_type],
+                        determinism="deterministic",
+                        severity=Severity.HIGH,
                     )
-                    results.append(validator_fn(ctx))
 
+                    finding = make_finding_from_result(
+                        result=r,
+                        check_entry=entry,
+                        document=doc,
+                        ruleset_version="ruleset_v2.0",
+                        prompt_version="prompt_v1.0",
+                        model_version="vlm_nvidia",
+                    )
+                    batch_findings.append(finding)
+                    FINDINGS_STORE.append(finding)
 
-
-        for r in results:
-            if r.status != FindingStatus.SKIPPED:
-                entry = CATALOG_BY_ID.get(r.check_id) or CheckCatalogEntry(
-                    check_id=r.check_id,
-                    name=r.check_id,
-                    description=r.message,
-                    category="three_way_match",
-                    applies_to=[doc.doc_type],
-                    determinism="deterministic",  # type: ignore[arg-type]
-                    severity=Severity.HIGH,
-                )
-
-                finding = make_finding_from_result(
-                    result=r,
-                    check_entry=entry,
-                    document=doc,
-                    ruleset_version="ruleset_v2.0",
-                    prompt_version="prompt_v1.0",
-                    model_version="vlm_nvidia",
-                )
-                new_findings.append(finding)
-                FINDINGS_STORE.append(finding)
-
-                # Record provenance
-                PROVENANCE.record_finding_provenance(
-                    finding=finding,
-                    document_id=doc.document_id,
-                    ruleset_version="ruleset_v2.0",
-                    prompt_version="prompt_v1.0",
-                    model_version="vlm_nvidia",
-                )
-
-                # Enqueue for review if failed or requires review
-                if finding.status == FindingStatus.FAIL or finding.requires_human_review:
-                    val = float(doc.header.grand_total.decimal_value) if doc.header.grand_total else 0.0
-                    REVIEW_QUEUE.enqueue(
+                    PROVENANCE.record_finding_provenance(
                         finding=finding,
                         document_id=doc.document_id,
-                        tenant_id=tenant_id,
-                        total_value=val,
+                        ruleset_version="ruleset_v2.0",
+                        prompt_version="prompt_v1.0",
+                        model_version="vlm_nvidia",
                     )
 
-                # Audit log entry for finding
-                AUDIT_LOG.log(
-                    entry_id=f"log_{uuid.uuid4().hex[:8]}",
-                    tenant_id=tenant_id,
-                    action="finding_emitted",
-                    resource_type=Resource.FINDING,
-                    resource_id=finding.finding_id,
-                    actor_id="system",
-                    payload={
-                        "check_id": finding.check_id,
-                        "status": finding.status.value,
-                        "fingerprint": finding.decision_fingerprint,
-                    },
-                )
+                    if finding.status == FindingStatus.FAIL or finding.requires_human_review:
+                        val = float(doc.header.grand_total.decimal_value) if doc.header.grand_total else 0.0
+                        REVIEW_QUEUE.enqueue(
+                            finding=finding,
+                            document_id=doc.document_id,
+                            tenant_id=tenant_id,
+                            total_value=val,
+                        )
+
+                    AUDIT_LOG.log(
+                        entry_id=f"log_{uuid.uuid4().hex[:8]}",
+                        tenant_id=tenant_id,
+                        action="finding_emitted",
+                        resource_type=Resource.FINDING,
+                        resource_id=finding.finding_id,
+                        actor_id="system",
+                        payload={
+                            "check_id": finding.check_id,
+                            "status": finding.status.value,
+                            "fingerprint": finding.decision_fingerprint,
+                        },
+                    )
+
+    first_doc = ingested_docs[0].model_dump() if ingested_docs else None
 
     return {
-        "message": f"Document {doc.document_id} ingested successfully",
-        "document": doc.model_dump(),
-        "findings": [f.model_dump() for f in new_findings],
-        "cluster_id": target_cluster.cluster_id if target_cluster else None,
-        "is_vlm_fallback": doc.extractor_version.startswith("vlm"),
+        "message": f"Successfully ingested batch of {len(ingested_docs)} document(s)",
+        "count": len(ingested_docs),
+        "documents": [d.model_dump() for d in ingested_docs],
+        "document": first_doc,
+        "extraction_results": extraction_results,
+        "findings": [f.model_dump() for f in batch_findings],
+        "is_vlm_fallback": any(d.extractor_version.startswith("vlm") for d in ingested_docs),
     }
+
 
 
 @app.get("/api/v2/audit/findings")

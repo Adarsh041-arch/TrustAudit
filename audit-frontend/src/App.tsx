@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { uploadDocumentV2 } from './api/api_v2'
+import { uploadDocumentsV2 } from './api/api_v2'
 import type { UploadResponse } from './api/api_v2'
+
+
 
 import { useDarkMode } from './hooks/useDarkMode'
 import { Header } from './components/Header'
@@ -15,7 +17,7 @@ type TabType = 'upload' | 'threeway' | 'findings' | 'review' | 'audit_log'
 export function App() {
   const { dark, toggle } = useDarkMode()
   const [activeTab, setActiveTab] = useState<TabType>('upload')
-  const [file, setFile] = useState<File | null>(null)
+  const [files, setFiles] = useState<FileList | null>(null)
   const [uploading, setUploading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null)
@@ -23,13 +25,18 @@ export function App() {
   const [allFindings, setAllFindings] = useState<any[]>([])
 
   async function handleUpload() {
-    if (!file) return
+    if (!files || files.length === 0) return
     setUploading(true)
     setError(null)
     try {
-      const res = await uploadDocumentV2(file)
+      const res = await uploadDocumentsV2(files)
       setUploadResult(res)
-      setAllDocuments((prev) => [...prev, res.document])
+      if (res.documents && res.documents.length > 0) {
+        setAllDocuments((prev) => [...prev, ...res.documents!])
+      } else if (res.document) {
+        setAllDocuments((prev) => [...prev, res.document])
+      }
+
       setAllFindings((prev) => [...prev, ...res.findings])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Document ingestion failed')
@@ -73,33 +80,41 @@ export function App() {
           <div className="space-y-6">
             <FlatCard>
               <h2 className="text-[18px] font-medium text-ink mb-1">
-                Ingest Document (PDF, Scanned Image, PNG, JPG)
+                Batch Ingest Documents (PDF, Scanned Image, PNG, JPG)
               </h2>
               <p className="text-[13px] text-muted mb-4">
-                Upload Invoices, Purchase Orders, Delivery Challans, or Goods Receipt Notes. Text layers are extracted deterministically; scanned or unreadable pages automatically transition to VLM Vision AI.
+                Select multiple documents at once (Invoices, Purchase Orders, Delivery Challans, Goods Receipts). Text layers are extracted deterministically; scanned or unreadable pages automatically transition to VLM Vision AI.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3 items-center">
                 <input
                   type="file"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  multiple
+                  onChange={(e) => setFiles(e.target.files)}
                   className="flex-1 border-[0.5px] border-border rounded-lg px-4 py-2 text-[14px] text-ink bg-surface-2 outline-none focus:border-teal-600 transition-colors w-full"
                 />
 
                 <button
                   onClick={handleUpload}
-                  disabled={uploading || !file}
+                  disabled={uploading || !files || files.length === 0}
                   className="px-5 py-2.5 rounded-lg text-[13px] font-medium border-[0.5px] border-teal-600 text-teal-600 bg-transparent hover:bg-teal-50 disabled:opacity-40 disabled:pointer-events-none transition-colors cursor-pointer shrink-0 w-full sm:w-auto"
                 >
-                  {uploading ? 'Extracting & Auditing\u2026' : 'Run Audit V2 Ingestion'}
+                  {uploading ? 'Batch Extracting & Auditing\u2026' : `Run Batch Audit (${files ? files.length : 0})`}
                 </button>
               </div>
+
+              {files && files.length > 0 && (
+                <div className="mt-3 text-[13px] text-teal-600 font-medium">
+                  ✓ Selected {files.length} document(s): {Array.from(files).map((f) => f.name).join(', ')}
+                </div>
+              )}
 
               {error && (
                 <div className="mt-4 p-3 rounded-lg bg-coral-50 border-[0.5px] border-coral-600/30 text-coral-600 text-[13px]">
                   {error}
                 </div>
               )}
+
 
               {uploadResult && (
                 <div className="mt-8 space-y-6 border-t-[0.5px] border-border pt-6">

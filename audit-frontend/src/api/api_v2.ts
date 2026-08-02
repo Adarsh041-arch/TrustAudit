@@ -7,11 +7,12 @@ export const V2_BASE = 'http://localhost:8100/api/v2'
 export interface UploadResponse {
   message: string
   document: any
+  documents?: any[]
   findings: any[]
   cluster_id: string | null
-
   is_vlm_fallback: boolean
 }
+
 
 export interface AuditLogResponse {
   tenant_id: string
@@ -43,9 +44,13 @@ export interface ReviewQueueResponse {
   golden_set_candidates_count: number
 }
 
-export async function uploadDocumentV2(file: File, tenantId: string = 'tenant_default'): Promise<UploadResponse> {
+export async function uploadDocumentsV2(
+  files: FileList | File[],
+  tenantId: string = 'tenant_default'
+): Promise<UploadResponse> {
   const formData = new FormData()
-  formData.append('file', file)
+  const fileArray = Array.from(files)
+  fileArray.forEach((f) => formData.append('files', f))
 
   const res = await fetch(`${V2_BASE}/audit/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
     method: 'POST',
@@ -59,6 +64,7 @@ export async function uploadDocumentV2(file: File, tenantId: string = 'tenant_de
 
   return res.json()
 }
+
 
 export async function fetchFindingsV2(tenantId: string = 'tenant_default'): Promise<any> {
   const res = await fetch(`${V2_BASE}/audit/findings?tenant_id=${encodeURIComponent(tenantId)}`)

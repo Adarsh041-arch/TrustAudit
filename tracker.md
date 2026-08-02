@@ -15,14 +15,15 @@
 
 Completed Frontend Execution for Audit V2:
 
-- **`backend/server_v2.py`** — Production FastAPI backend on port `:8100` exposing V2 document upload (with VLM fallback), 3-way match cluster correlation, active findings, hash-chained audit log with live `verify_chain()` validation, and human review queue endpoints.
-- **`audit-frontend/`** — Built modern React dark glassmorphism UI tabs:
-  - **Live Audit Ingestion**: Document drag-and-drop with VLM Vision AI status badges and header extraction stats.
+- **`backend/server_v2.py`** — Production FastAPI backend on port `:8100` exposing multi-file batch document upload (`files: list[UploadFile]`), 3-way match cluster correlation, active findings, hash-chained audit log with live `verify_chain()` validation, and human review queue endpoints.
+- **`audit-frontend/`** — Built modern React dashboard aligned with V1 design system:
+  - **Live Audit Ingestion**: Multi-file batch document selection (`multiple` input) with document count badge, VLM Vision AI status badges, and header extraction stats.
   - **3-Way Match Topology**: Interactive visual cluster viewer (PO ↔ DC ↔ Invoice) and critical over-billing fraud alerts.
   - **Findings Inspector**: Active findings with decision fingerprints.
   - **Human Review Queue**: Priority workspace (`severity × value × age`) with `Confirm`, `Reject (False Alarm)`, and `Escalate` actions.
   - **Cryptographic Audit Log**: Visual hash-chain timeline with real-time SHA-256 integrity verification badge.
-- **Tests**: Created `tests/test_server_v2.py` (all 5 API tests passing), `npm run build` clean in 931ms.
+- **Tests**: Created `tests/test_server_v2.py` (all 6 API tests passing including `test_upload_multi_document_batch`), `npm run build` clean in 850ms.
+
 
 
 Completed Phases 8, 9, and 10 (PHASES_V2 §4):
