@@ -64,3 +64,28 @@ class TestServerV2:
         assert res.status_code == 200
         body = res.json()
         assert "pending_items" in body
+
+    def test_upload_response_has_enriched_document_results(self):
+        from io import BytesIO
+
+        with open("sample_docs/INV-2026-0715_NewTech_Solutions.pdf", "rb") as f:
+            pdf_bytes = f.read()
+
+        with TestClient(app) as client:
+            res = client.post(
+                "/api/v2/audit/upload?tenant_id=tenant_default",
+                files={"files": ("invoice.pdf", BytesIO(pdf_bytes), "application/pdf")},
+            )
+        assert res.status_code == 200
+        body = res.json()
+        assert len(body["document_results"]) == 1
+        dr = body["document_results"][0]
+        assert dr["document_name"] == "invoice.pdf"
+        assert dr["document_type"] in {"invoice", "purchase_order", "delivery_challan", "goods_receipt_note", "contract", "letter"}
+        assert 0.0 <= dr["score"] <= 100.0
+        assert dr["risk_level"] in {"Low Risk", "Medium Risk", "High Risk"}
+        assert "ml_prediction" in dr and dr["ml_prediction"]["mode"] == "Rule-based (V2)"
+        assert dr["preview_base64"] != ""
+        assert "lower" in body["prediction_interval"] and "upper" in body["prediction_interval"]
+        assert body["analytics"]["kpis"]["total_audited"] == 1
+        assert len(body["analytics"]["charts"]["risk_distribution"]) == 1

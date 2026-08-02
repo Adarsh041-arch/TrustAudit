@@ -16,6 +16,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from audit_v2.analytics.aggregator import aggregate_results, compute_prediction_interval
+from audit_v2.analytics.risk_predictor import predict_risk, severity_counts
+from audit_v2.analytics.risk_scorer import (
+    compute_document_score,
+    risk_explanation_for,
+    risk_level_for,
+)
 from audit_v2.domain.adjudicator import Adjudicator
 from audit_v2.domain.catalog_loader import load_catalog
 from audit_v2.domain.correlation import build_clusters, build_corpus_index
@@ -37,6 +44,7 @@ from audit_v2.domain.validators.threeway import (
     check_receipt_exists,
 )
 from audit_v2.extraction.classifier import classify_document_from_data
+from audit_v2.extraction.preview import generate_preview
 from audit_v2.orchestration.activities import extract_document
 from audit_v2.orchestration.cluster_audit import ClusterAuditor
 from audit_v2.orchestration.review_queue import ReviewAction, ReviewQueue
@@ -133,6 +141,51 @@ def health_check() -> dict[str, Any]:
     }
 
 
+def _failed_rule(f: Finding) -> dict[str, Any]:
+    entry = CATALOG_BY_ID.get(f.check_id)
+    return {
+        "rule_id": f.check_id,
+        "rule_title": entry.title if entry else f.check_id,
+        "finding": f.message,
+        "evidence": f.actual or "",
+        "impact": entry.failure_message if entry else "",
+        "recommendation": "Fix the stated value or provide supporting documentation.",
+        "severity": f.severity.value,
+        "page_number": f.evidence[0].page if f.evidence else None,
+    }
+
+
+def enrich_document(
+    doc: ExtractedDocument,
+    filename: str,
+    findings: list[Finding],
+    data: bytes,
+    mime_type: str,
+) -> dict[str, Any]:
+    failed = [f for f in findings if f.document_id == doc.document_id]
+    score = compute_document_score(failed)
+    counts = severity_counts(failed)
+    return {
+        "document_id": doc.document_id,
+        "document_name": filename,
+        "document_type": doc.doc_type.value,
+        "passed": score >= 80.0,
+        "score": round(score, 2),
+        "risk_level": risk_level_for(score, failed),
+        "risk_explanation": risk_explanation_for(score, failed),
+        "failed_rules": [_failed_rule(f) for f in failed],
+        "ml_prediction": predict_risk(score, counts),
+        "confidence_score": round(score, 2),
+        "human_review_recommended": bool(doc.extraction_disagreements)
+        or any(f.requires_human_review for f in failed),
+        "remarks": doc.narrative_report or "",
+        "preview_base64": generate_preview(data, mime_type),
+        "page_count": doc.page_count,
+        "summary_text": doc.narrative_report or "",
+        "metadata": doc.header.model_dump(),
+    }
+
+
 @app.post("/api/v2/audit/upload")
 async def upload_documents(
     files: list[UploadFile] = File(...),
@@ -143,6 +196,7 @@ async def upload_documents(
 
     ingested_docs: list[ExtractedDocument] = []
     extraction_results: list[dict[str, Any]] = []
+    pending_enrich: list[tuple[ExtractedDocument, str, bytes, str]] = []
 
     for file in files:
         data = await file.read()
@@ -165,6 +219,7 @@ async def upload_documents(
         doc = res.document
         DOCUMENTS_STORE[doc.document_id] = doc
         ingested_docs.append(doc)
+        pending_enrich.append((doc, file.filename, data, mime_type))
         extraction_results.append({
             "filename": file.filename,
             "document_id": doc.document_id,
@@ -311,6 +366,11 @@ async def upload_documents(
                         },
                     )
 
+    enriched = [
+        enrich_document(doc, filename, batch_findings, data, mime_type)
+        for doc, filename, data, mime_type in pending_enrich
+    ]
+
     first_doc = ingested_docs[0].model_dump() if ingested_docs else None
 
     return {
@@ -320,6 +380,11 @@ async def upload_documents(
         "document": first_doc,
         "extraction_results": extraction_results,
         "findings": [f.model_dump() for f in batch_findings],
+        "document_results": enriched,
+        "prediction_interval": compute_prediction_interval(
+            [e["score"] for e in enriched]
+        ),
+        "analytics": aggregate_results(enriched),
         "is_vlm_fallback": any(
             extraction_mode_of(d) != "regex" for d in ingested_docs
         ),
