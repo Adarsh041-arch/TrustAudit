@@ -16,6 +16,7 @@ dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.34",
     "python-docx>=1.1",
+    "reportlab>=4.0",
     "opentelemetry-api>=1.28",
     "opentelemetry-sdk>=1.28",
 ]
