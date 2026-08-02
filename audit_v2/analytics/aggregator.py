@@ -5,6 +5,8 @@ import math
 from collections import Counter
 from typing import Any
 
+RISK_COLORS = {"Low Risk": "#0F6E56", "Medium Risk": "#D97706", "High Risk": "#993C1D"}
+
 
 def compute_prediction_interval(scores: list[float]) -> dict[str, float]:
     """95% confidence interval on the mean score (V1: 1.96*sigma/sqrt(n))."""
@@ -31,7 +33,7 @@ def aggregate_results(documents: list[dict[str, Any]]) -> dict[str, Any]:
 
     risk_counts = Counter(d.get("risk_level", "Low Risk") for d in documents)
     risk_distribution = [
-        {"name": name, "value": count}
+        {"name": name, "value": count, "color": RISK_COLORS.get(name, "#6B7280")}
         for name, count in risk_counts.items()
     ]
 

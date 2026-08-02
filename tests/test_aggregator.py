@@ -32,7 +32,7 @@ def test_charts_shapes():
         _doc("b", "invoice", False, 50.0, "High Risk", [{"rule_id": "CHK-ARITH-LINE-001", "rule_title": "Line total", "severity": "high"}]),
     ]
     charts = aggregate_results(docs)["charts"]
-    assert {"name": "Low Risk", "value": 1} in charts["risk_distribution"]
+    assert {"name": "Low Risk", "value": 1, "color": "#0F6E56"} in charts["risk_distribution"]
     assert charts["violation_frequency"][0] == {"rule_id": "CHK-ARITH-LINE-001", "title": "Line total", "count": 1}
     assert charts["document_types"] == [{"name": "Invoice", "value": 2}]
     assert charts["compliance_trends"] == [{"name": "a", "score": 90.0}, {"name": "b", "score": 50.0}]
