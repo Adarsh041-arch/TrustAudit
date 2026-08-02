@@ -15,6 +15,8 @@ import { DashboardSection } from './sections/DashboardSection'
 import { DocumentCard } from './components/DocumentCard'
 import { StatusBadge } from './components/StatusBadge'
 import { ProcessingAnimation } from './components/ProcessingAnimation'
+import { ReportSection } from './sections/ReportSection'
+import { SettingsSection } from './sections/SettingsSection'
 
 type TabType = 'dashboard' | 'upload' | 'threeway' | 'findings' | 'review' | 'audit_log' | 'reports' | 'settings'
 
@@ -29,6 +31,12 @@ export function App() {
   const [allFindings, setAllFindings] = useState<any[]>([])
   const [allReportDocs, setAllReportDocs] = useState<DocumentAuditResult[]>([])
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [threshold, setThreshold] = useState<number>(() => Number(localStorage.getItem('confidence_threshold') ?? 75))
+
+  const handleThresholdChange = (t: number) => {
+    setThreshold(t)
+    localStorage.setItem('confidence_threshold', String(t))
+  }
 
   async function handleUpload() {
     if (!files || files.length === 0) return
@@ -347,18 +355,10 @@ export function App() {
         {activeTab === 'audit_log' && <AuditLogViewer />}
 
         {/* Tab 6: Reports */}
-        {activeTab === 'reports' && (
-          <FlatCard>
-            <p className="text-[13px] text-muted py-6">Reports tab - coming soon.</p>
-          </FlatCard>
-        )}
+        {activeTab === 'reports' && <ReportSection documents={allReportDocs} findings={allFindings} />}
 
         {/* Tab 7: Settings */}
-        {activeTab === 'settings' && (
-          <FlatCard>
-            <p className="text-[13px] text-muted py-6">Settings tab - coming soon.</p>
-          </FlatCard>
-        )}
+        {activeTab === 'settings' && <SettingsSection threshold={threshold} onThresholdChange={handleThresholdChange} />}
       </main>
     </div>
   )
