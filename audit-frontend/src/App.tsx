@@ -12,6 +12,9 @@ import { ThreeWayMatchGraph } from './sections/ThreeWayMatchGraph'
 import { AuditLogViewer } from './sections/AuditLogViewer'
 import { ReviewQueueSection } from './sections/ReviewQueueSection'
 import { DashboardSection } from './sections/DashboardSection'
+import { DocumentCard } from './components/DocumentCard'
+import { StatusBadge } from './components/StatusBadge'
+import { ProcessingAnimation } from './components/ProcessingAnimation'
 
 type TabType = 'dashboard' | 'upload' | 'threeway' | 'findings' | 'review' | 'audit_log' | 'reports' | 'settings'
 
@@ -25,6 +28,7 @@ export function App() {
   const [allDocuments, setAllDocuments] = useState<any[]>([])
   const [allFindings, setAllFindings] = useState<any[]>([])
   const [allReportDocs, setAllReportDocs] = useState<DocumentAuditResult[]>([])
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
 
   async function handleUpload() {
     if (!files || files.length === 0) return
@@ -33,6 +37,9 @@ export function App() {
     try {
       const res = await uploadDocumentsV2(files)
       setUploadResult(res)
+      if (res.document_results?.length) {
+        setSelectedDocId(res.document_results[0].document_id)
+      }
       if (res.documents && res.documents.length > 0) {
         setAllDocuments((prev) => [...prev, ...res.documents!])
       } else if (res.document) {
@@ -49,6 +56,11 @@ export function App() {
       setUploading(false)
     }
   }
+
+  const selectedDoc =
+    uploadResult?.document_results?.find((d) => d.document_id === selectedDocId) ??
+    uploadResult?.document_results?.[0] ??
+    null
 
   return (
     <div className="min-h-dvh bg-surface-1">
@@ -121,6 +133,8 @@ export function App() {
                   ✓ Selected {files.length} document(s): {Array.from(files).map((f) => f.name).join(', ')}
                 </div>
               )}
+
+              {uploading && <ProcessingAnimation message="Extracting & auditing documents\u2026" />}
 
               {error && (
                 <div className="mt-4 p-3 rounded-lg bg-coral-50 border-[0.5px] border-coral-600/30 text-coral-600 text-[13px]">
@@ -244,7 +258,42 @@ export function App() {
                       </div>
                     )}
                   </div>
-                </div>
+
+                {/* Document Inspector */}
+                {uploadResult.document_results && uploadResult.document_results.length > 0 && (
+                  <FlatCard>
+                    <h3 className="text-[18px] font-medium text-ink mb-4">Document Inspector</h3>
+                    {uploadResult.document_results.length > 1 && (
+                      <div className="flex flex-col gap-1.5 mb-4 max-h-56 overflow-y-auto">
+                        {uploadResult.document_results.map((d) => (
+                          <button
+                            key={d.document_id}
+                            onClick={() => setSelectedDocId(d.document_id)}
+                            className={`flex items-center justify-between px-3 py-2 rounded-lg border-[0.5px] text-left text-[13px] transition-colors cursor-pointer ${
+                              selectedDocId === d.document_id
+                                ? 'border-teal-600 bg-teal-50 text-ink'
+                                : 'border-border bg-surface-1 text-muted hover:bg-surface-2'
+                            }`}
+                          >
+                            <span className="truncate mr-2">{d.document_name}</span>
+                            <StatusBadge passed={d.passed} />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {selectedDoc && (
+                      <>
+                        {selectedDoc.human_review_recommended && (
+                          <div className="mb-3 p-3 rounded-lg bg-amber-50 border-[0.5px] border-amber-600/30 text-amber-700 text-[13px]">
+                            Human review recommended (confidence {selectedDoc.confidence_score.toFixed(1)}%).
+                          </div>
+                        )}
+                        <DocumentCard doc={selectedDoc} interval={uploadResult.prediction_interval} />
+                      </>
+                    )}
+                  </FlatCard>
+                )}
+              </div>
               )}
             </FlatCard>
           </div>
