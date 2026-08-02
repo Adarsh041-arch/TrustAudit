@@ -1,4 +1,4 @@
-from audit_v2.persistence.db import connect, apply_schema, tenant_session
+from audit_v2.persistence.db import apply_schema, connect, tenant_session
 from audit_v2.persistence.finding_store import FindingStore
 from audit_v2.persistence.schema import ALL_SCHEMA_SQL
 

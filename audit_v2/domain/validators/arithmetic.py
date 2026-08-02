@@ -9,9 +9,11 @@ from audit_v2.domain.models import (
     CheckContext,
     CheckResult,
     EvidenceItem,
+    ProvenancedValue,
 )
 
 # Full GST slabs, plus the CGST/SGST component halves. An 18% slab is levied as
+
 # CGST 9% + SGST 9%, so each component line legitimately carries half the slab.
 GST_SLAB_RATES = {
     Decimal("0"), Decimal("0.125"), Decimal("0.25"), Decimal("0.5"),
@@ -214,7 +216,8 @@ def check_rounding_accumulation(ctx: CheckContext) -> CheckResult:
     return CheckResult.passed("CHK-ARITH-ROUNDING-001")
 
 
-def _evidence(ctx: CheckContext, pv, field: str) -> EvidenceItem:
+def _evidence(ctx: CheckContext, pv: ProvenancedValue, field: str) -> EvidenceItem:
+
     return EvidenceItem(
         document_id=ctx.document.document_id,
         page=pv.page,

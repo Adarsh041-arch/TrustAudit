@@ -29,8 +29,8 @@ from audit_v2.orchestration.activities_temporal import (
     validate_and_emit_activity,
 )
 from audit_v2.orchestration.temporal_workflow import AuditDocumentWorkflow
-from audit_v2.persistence.db import connect as pg_connect
 from audit_v2.persistence.db import apply_schema
+from audit_v2.persistence.db import connect as pg_connect
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

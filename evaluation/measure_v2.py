@@ -50,6 +50,8 @@ CATEGORY_OF_PREFIX = {
     "CHK-TEMP": "temporal",
     "CHK-REF": "reference_integrity",
     "CHK-FORMAT": "format_completeness",
+    "CHK-XDOC": "correlation",
+    "CHK-DUP": "duplicate",
 }
 
 
@@ -196,7 +198,8 @@ def score_extraction(manifest: dict, result: dict, field_stats: dict) -> None:
         extracted = header.get(field_key)
         extracted_str = ""
         if isinstance(extracted, dict):
-            extracted_str = extracted.get("text", extracted.get("decimal_value", "")) or ""
+            # ProvenancedValue dumps as {value, raw, ...}
+            extracted_str = extracted.get("value", "") or ""
         elif extracted is not None:
             extracted_str = str(extracted)
 
@@ -210,10 +213,24 @@ def score_extraction(manifest: dict, result: dict, field_stats: dict) -> None:
                 field_stats[field_key]["fp"] += 1
 
     extracted_lines = doc.get("line_items", [])
-    gold_tuples = {(l["qty"], l["rate"], l["total"], l.get("hsn", ""))
-                   for l in gold_lines}
-    ext_tuples = {(l.get("qty", ""), l.get("rate", ""), l.get("total", ""),
-                   l.get("hsn", "")) for l in extracted_lines}
+
+    def _pv(line: dict, key: str) -> str:
+        v = line.get(key)
+        if isinstance(v, dict):
+            return v.get("value", "") or ""
+        return str(v) if v is not None else ""
+
+    def _norm(s: str) -> str:
+        try:
+            return str(Decimal(s.replace(",", "")))
+        except Exception:
+            return s
+
+    gold_tuples = {(_norm(l["qty"]), _norm(l["rate"]), _norm(l["total"]),
+                    l.get("hsn", "")) for l in gold_lines}
+    ext_tuples = {(_norm(_pv(l, "quantity")), _norm(_pv(l, "unit_price")),
+                   _norm(_pv(l, "line_total")), _pv(l, "hsn_sac"))
+                  for l in extracted_lines}
     line_matches = len(gold_tuples & ext_tuples)
     field_stats.setdefault("lines", {"tp": 0, "fp": 0, "fn": 0})
     field_stats["lines"]["tp"] += line_matches
@@ -237,6 +254,9 @@ async def main_async(args: argparse.Namespace) -> dict:
     confidences: list[float] = []
     correct: list[bool] = []
     run1_verdicts: dict[str, bool] = {}
+    security_tp: int = 0
+    security_fn: int = 0
+    injection_total: int = 0
 
     for i, manifest in enumerate(manifests, 1):
         result = await run_document(manifest)
@@ -245,6 +265,22 @@ async def main_async(args: argparse.Namespace) -> dict:
                            "error": "source PDF missing"})
             continue
         statuses[result["status"]] += 1
+
+        expected_status = manifest.get("expected_status")
+        if expected_status:
+            injection_total += 1
+            actual = result["status"].value if hasattr(result["status"], "value") else str(result["status"])
+            if actual == expected_status:
+                security_tp += 1
+            else:
+                security_fn += 1
+                misses.append({
+                    "document_id": manifest["document_id"],
+                    "check_id": "SEC-FLAG-001",
+                    "defects": manifest.get("defects", []),
+                    "note": f"expected {expected_status}, got {result['status']}",
+                })
+
         if result["error"]:
             errors.append({"document_id": manifest["document_id"],
                            "error": result["error"]})
@@ -252,6 +288,7 @@ async def main_async(args: argparse.Namespace) -> dict:
         score_findings(manifest, result, matrices, misses, false_alarms,
                        confidences, correct, run1_verdicts)
         score_extraction(manifest, result, field_stats)
+
         if args.verbose and i % 25 == 0:
             print(f"  ... {i}/{len(manifests)}")
 
@@ -322,6 +359,20 @@ async def main_async(args: argparse.Namespace) -> dict:
             "pass": determinism == 1.0,
         },
     }
+
+    if injection_total > 0:
+        security_recall = security_tp / (security_tp + security_fn) if (security_tp + security_fn) > 0 else 0.0
+        report["gates"]["security_injection"] = {
+            "value": round(security_recall, 4),
+            "target": 1.0,
+            "pass": security_recall == 1.0,
+        }
+        report["security"] = {
+            "tp": security_tp,
+            "fn": security_fn,
+            "total": injection_total,
+            "recall": round(security_recall, 4),
+        }
     return report
 
 
@@ -358,6 +409,11 @@ def print_report(report: dict) -> None:
               f"  (TP={report['extraction']['tp']}, "
               f"FP={report['extraction']['fp']}, "
               f"FN={report['extraction']['fn']})")
+
+    if report.get("security"):
+        s = report["security"]
+        print(f"\nSecurity injection: {s['tp']}/{s['total']} detected"
+              f" (recall={s['recall']:.4f})")
 
     if report["misses"]:
         print(f"\nMissed defects ({len(report['misses'])}):")

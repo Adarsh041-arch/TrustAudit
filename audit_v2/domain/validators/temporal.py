@@ -1,10 +1,11 @@
 """Temporal validators — CHK-TEMP-* checks."""
 from datetime import date, datetime
 
-from audit_v2.domain.models import CheckContext, CheckResult
+from audit_v2.domain.models import CheckContext, CheckResult, ProvenancedValue
 
 
-def _parse_date(pv) -> date | None:
+def _parse_date(pv: ProvenancedValue | None) -> date | None:
+
     if pv is None or pv.value in (None, ""):
         return None
     raw = pv.value.strip()

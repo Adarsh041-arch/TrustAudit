@@ -327,3 +327,61 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Line {n}: received qty {recv_qty} > DC qty {dc_qty}"
     requires_human_review: false
+
+  # ─── Cross-document / corpus (5 checks, deterministic, Phase 7) ─────────────
+  # These SKIP on single-document runs and execute when the workflow provides
+  # a TransactionCluster / CorpusIndex on the CheckContext.
+  - check_id: CHK-DUP-DOC-001
+    title: Document is not a duplicate within the tenant corpus
+    category: duplicate
+    applies_to: [invoice, purchase_order]
+    severity: critical
+    determinism: deterministic
+    inputs: [document_id, vendor_name, grand_total, invoice_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Document {doc} duplicates {dupes} ({signature})"
+    requires_human_review: true
+
+  - check_id: CHK-XDOC-QTY-001
+    title: Invoiced quantity does not exceed received quantity
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, grn_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n}: invoiced qty {inv_qty} > received qty {recv_qty}"
+    requires_human_review: false
+
+  - check_id: CHK-XDOC-PRICE-001
+    title: Invoiced unit price matches PO unit price within tolerance
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, po_line_items]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Line {n}: invoiced price {inv_price} != PO price {po_price}"
+    requires_human_review: false
+
+  - check_id: CHK-XDOC-RECEIPT-001
+    title: Invoice above value threshold has a goods receipt
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [grand_total, cluster_documents]
+    tolerance: {type: absolute, value: "50000"}
+    failure_message: "Invoice total {total} above {threshold} with no goods receipt"
+    requires_human_review: true
+
+  - check_id: CHK-XDOC-CUMUL-001
+    title: Cumulative invoiced across cluster does not exceed PO value
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [cluster_invoices, po_grand_total]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Cumulative invoiced {cumulative} exceeds PO value {po_value}"
+    requires_human_review: true

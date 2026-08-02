@@ -55,7 +55,8 @@ class FindingStore:
             "finding_id", "check_id", "verdict", "severity", "expected_value",
             "actual_value", "discrepancy", "evidence", "decision_fingerprint", "supersedes",
         )
-        return [dict(zip(cols, r)) for r in rows]
+        return [dict(zip(cols, r, strict=False)) for r in rows]
+
 
 
 def _text(v) -> str | None:

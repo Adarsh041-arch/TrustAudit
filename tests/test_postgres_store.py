@@ -23,6 +23,8 @@ requires_pg = pytest.mark.skipif(not DSN, reason="AUDIT_PG_DSN not set")
 @pytest.fixture(scope="session")
 def _admin_conn():
     """Superuser connection — used only to apply schema (DDL needs superuser)."""
+    if not DSN:
+        pytest.skip("AUDIT_PG_DSN not set")
     from audit_v2.persistence.db import connect
 
     conn = connect(DSN)
@@ -50,12 +52,13 @@ def _pg_store(conn, tenant_id):
 
 
 @pytest.fixture(params=["memory", "postgres"])
-def store(request, _admin_conn):
+def store(request):
     if request.param == "memory":
         yield MemoryDocumentStore()
     else:
         if not DSN:
             pytest.skip("AUDIT_PG_DSN not set")
+        request.getfixturevalue("_admin_conn")  # apply schema first
         from audit_v2.persistence.db import connect
 
         conn = connect(APP_DSN)

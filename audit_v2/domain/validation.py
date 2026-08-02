@@ -6,8 +6,10 @@ from audit_v2.domain.models import (
     CheckCatalogEntry,
     CheckContext,
     CheckResult,
+    CorpusIndex,
     ExtractedDocument,
     FindingStatus,
+    TransactionCluster,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,11 +24,13 @@ def register_validator(check_id: str, fn: Callable[[CheckContext], CheckResult])
 def _import_validators() -> None:
     from audit_v2.domain.validators import (
         arithmetic,
+        duplicate,
         format_completeness,
         reference_integrity,
         rollforward,
         sequence,
         temporal,
+        threeway,
         threshold,
     )
 
@@ -60,6 +64,11 @@ def _import_validators() -> None:
         ("CHK-FORMAT-TAXBREAKDOWN-001", format_completeness.check_tax_breakdown),
         ("CHK-FORMAT-CURRENCY-001", format_completeness.check_currency_format),
         ("CHK-FORMAT-WORDS-001", format_completeness.check_amount_in_words),
+        ("CHK-DUP-DOC-001", duplicate.check_duplicate_document),
+        ("CHK-XDOC-QTY-001", threeway.check_invoiced_vs_received),
+        ("CHK-XDOC-PRICE-001", threeway.check_price_matches_po),
+        ("CHK-XDOC-RECEIPT-001", threeway.check_receipt_exists),
+        ("CHK-XDOC-CUMUL-001", threeway.check_cumulative_invoiced),
     ]:
         register_validator(check_id, fn)
 
@@ -75,6 +84,8 @@ class CheckRunner:
         skipped_check_ids: dict[str, str],
         currency_exponent: Decimal = Decimal("0.01"),
         tenant_tolerances: dict[str, str] | None = None,
+        cluster: TransactionCluster | None = None,
+        corpus_index: CorpusIndex | None = None,
     ) -> list[CheckResult]:
         if not VALIDATOR_REGISTRY:
             _import_validators()
@@ -110,6 +121,8 @@ class CheckRunner:
                 check_entry=check_entry,
                 currency_exponent=currency_exponent,
                 tenant_tolerances=tenant_tolerances,
+                cluster=cluster,
+                corpus_index=corpus_index,
             )
 
             try:

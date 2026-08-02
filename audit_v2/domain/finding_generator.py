@@ -82,6 +82,7 @@ def make_finding_from_result(
     ruleset_version: str,
     prompt_version: str,
     model_version: str,
+    context_hash: str | None = None,
 ) -> Finding:
     """Convert a CheckResult into a persisted Finding.
 
@@ -90,6 +91,9 @@ def make_finding_from_result(
     - The decision_fingerprint is sha256(ruleset_version|prompt_version|
       model_version|extractor_version|document_hash). Two findings with the
       same fingerprint MUST agree (PHASES_V2.md §3.6).
+    - `context_hash`: for cross-document checks the verdict depends on more
+      than this document — pass a hash of the cluster/corpus context so the
+      fingerprint changes when the context does.
     """
     requires_review = (
         check_entry.severity == Severity.CRITICAL
@@ -97,12 +101,16 @@ def make_finding_from_result(
         or result.requires_human_review
     )
 
+    doc_hash = _document_hash(document)
+    if context_hash is not None:
+        doc_hash = f"{doc_hash}+ctx:{context_hash}"
+
     fingerprint = make_fingerprint(
         ruleset_version=ruleset_version,
         prompt_version=prompt_version,
         model_version=model_version,
         extractor_version=document.extractor_version,
-        document_hash=_document_hash(document),
+        document_hash=doc_hash,
     )
 
     finding_id = f"fnd_{uuid.uuid4().hex[:12]}"

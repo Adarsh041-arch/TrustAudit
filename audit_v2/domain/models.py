@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
+
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -91,7 +92,7 @@ class ProvenancedValue(BaseModel):
                 f"Field value {self.value!r} (raw {self.raw!r}) is not numeric"
             ) from e
 
-    def model_post_init(self, __context):
+    def model_post_init(self, __context: object) -> None:
         if self.bbox is not None and len(self.bbox) != 4:
             raise ValueError(f"bbox must have exactly 4 values, got {len(self.bbox)}")
 
@@ -103,7 +104,8 @@ class Coverage(BaseModel):
     coverage_complete: bool = False
 
     @model_validator(mode="after")
-    def validate_coverage(self):
+    def validate_coverage(self) -> Coverage:
+
         if self.coverage_complete:
             assert self.pages_examined == self.pages_total, \
                 "coverage_complete=True but pages_examined != pages_total"
@@ -251,8 +253,55 @@ class Finding(BaseModel):
     ruleset_version: str
     requires_human_review: bool = False
     supersedes: str | None = None
-    created_at: datetime
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     schema_version: str = "2.0"
+
+
+
+# ─── Correlation (Phase 7) ──────────────────────────────────────────────────
+
+class LinkMethod(StrEnum):
+    EXPLICIT_REFERENCE = "explicit_reference"      # invoice cites PO number
+    VENDOR_AMOUNT_DATE = "vendor_amount_date"      # (vendor, amount, date-window)
+    FUZZY = "fuzzy"                                # vendor + line-description match
+
+
+class DocumentLink(BaseModel):
+    document_id: str
+    doc_type: DocumentType
+    method: LinkMethod
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class TransactionCluster(BaseModel):
+    """Documents linked by shared business keys — the unit of three-way match.
+
+    PHASES_V2 §4 Phase 7: every link records its method and confidence;
+    low-confidence links route to human review rather than being asserted.
+    """
+    cluster_id: str
+    links: list[DocumentLink] = Field(default_factory=list)
+    documents: list[ExtractedDocument] = Field(default_factory=list)
+
+    def of_type(self, doc_type: DocumentType) -> list[ExtractedDocument]:
+        return [d for d in self.documents if d.doc_type == doc_type]
+
+    @property
+    def purchase_order(self) -> ExtractedDocument | None:
+        pos = self.of_type(DocumentType.PURCHASE_ORDER)
+        return pos[0] if pos else None
+
+
+class CorpusIndex(BaseModel):
+    """Per-tenant duplicate-detection index (PHASES_V2 §4 Phase 6).
+
+    Keys are pre-normalized strings so the index is serializable and the
+    lookups deterministic.
+    """
+    # "vendor||docnum" -> list of document_ids carrying that number
+    by_vendor_docnum: dict[str, list[str]] = Field(default_factory=dict)
+    # "vendor||amount||date" -> list of document_ids
+    by_vendor_amount_date: dict[str, list[str]] = Field(default_factory=dict)
 
 
 # ─── Check Context ───────────────────────────────────────────────────────────
@@ -262,6 +311,10 @@ class CheckContext(BaseModel):
     check_entry: CheckCatalogEntry
     currency_exponent: Decimal = Decimal("0.01")
     tenant_tolerances: dict[str, str] = Field(default_factory=dict)
+    # Phase 7: corpus-level context. None on single-document runs — validators
+    # that need it SKIP with an explicit reason when absent.
+    cluster: TransactionCluster | None = None
+    corpus_index: CorpusIndex | None = None
 
     def tolerance_for(self, check_id: str) -> Decimal:
         if check_id in self.tenant_tolerances:

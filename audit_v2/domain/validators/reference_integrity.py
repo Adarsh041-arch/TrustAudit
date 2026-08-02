@@ -1,11 +1,20 @@
 """Reference integrity validators — CHK-REF-* checks.
 
-These are deterministic single-document checks. Cross-document checks (CHK-REF-QTY-001/002)
-require corpus context and are deferred to Phase 7.
+Single-document checks are deterministic over the extracted record. The
+cross-document checks (CHK-REF-QTY-001/002) run when a TransactionCluster is
+present on the CheckContext (Phase 7) and SKIP otherwise.
 """
 import re
+from decimal import Decimal
 
-from audit_v2.domain.models import CheckContext, CheckResult
+from audit_v2.domain.models import (
+    CheckContext,
+    CheckResult,
+    DocumentType,
+    EvidenceItem,
+    ExtractedDocument,
+    LineItem,
+)
 
 GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9][Z][0-9A-Z]$")
 IFSC_PATTERN = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
@@ -105,17 +114,75 @@ def check_bank_details(ctx: CheckContext) -> CheckResult:
     return CheckResult.passed("CHK-REF-BANK-001")
 
 
+def _qty_by_desc(doc: ExtractedDocument) -> dict[str, tuple[LineItem, Decimal]]:
+    out: dict[str, tuple[LineItem, Decimal]] = {}
+    for li in doc.line_items:
+        key = li.description.value.strip().casefold()
+        prev = out.get(key)
+        qty = li.quantity.decimal_value
+        out[key] = (li, (prev[1] + qty) if prev else qty)
+    return out
+
+
+def _qty_evidence(doc: ExtractedDocument, li: LineItem) -> EvidenceItem:
+    return EvidenceItem(
+        document_id=doc.document_id,
+        page=li.quantity.page,
+        bbox=li.quantity.bbox,
+        field="quantity",
+        raw=li.quantity.raw,
+    )
+
+
+def _check_qty_against(
+    ctx: CheckContext, check_id: str, ref_type: DocumentType, ref_label: str,
+) -> CheckResult:
+    if ctx.cluster is None:
+        return CheckResult.skipped(
+            check_id, "Cross-document check: no cluster context on this run",
+        )
+    refs = ctx.cluster.of_type(ref_type)
+    if not refs:
+        return CheckResult.skipped(check_id, f"No {ref_label} in cluster")
+
+    ref_qty: dict[str, Decimal] = {}
+    ref_line: dict[str, tuple[ExtractedDocument, LineItem]] = {}
+    for ref in refs:
+        for key, (li, qty) in _qty_by_desc(ref).items():
+            ref_qty[key] = ref_qty.get(key, Decimal("0")) + qty
+            ref_line[key] = (ref, li)
+
+    for key, (li, qty) in _qty_by_desc(ctx.document).items():
+        if key not in ref_qty:
+            continue  # unmatched line: no verdict (precision-first)
+        if qty > ref_qty[key]:
+            ref_doc, ref_li = ref_line[key]
+            return CheckResult.failed(
+                check_id,
+                expected=f"<= {ref_qty[key]}",
+                actual=str(qty),
+                delta=str(qty - ref_qty[key]),
+                message=(
+                    f"Line {li.line_number} ({li.description.value}): qty {qty} "
+                    f"exceeds {ref_label} qty {ref_qty[key]}"
+                ),
+                evidence=[
+                    _qty_evidence(ctx.document, li),
+                    _qty_evidence(ref_doc, ref_li),
+                ],
+            )
+    return CheckResult.passed(check_id)
+
+
 def check_quantity_po(ctx: CheckContext) -> CheckResult:
-    """CHK-REF-QTY-001 — invoiced qty <= PO qty (requires corpus context, deferred to Phase 7)."""
-    return CheckResult.skipped(
-        "CHK-REF-QTY-001",
-        "Cross-document check: requires corpus context (Phase 7)",
+    """CHK-REF-QTY-001 — invoiced/challan qty <= PO qty."""
+    return _check_qty_against(
+        ctx, "CHK-REF-QTY-001", DocumentType.PURCHASE_ORDER, "PO",
     )
 
 
 def check_quantity_dc(ctx: CheckContext) -> CheckResult:
-    """CHK-REF-QTY-002 — received qty <= DC qty (requires corpus context, deferred to Phase 7)."""
-    return CheckResult.skipped(
-        "CHK-REF-QTY-002",
-        "Cross-document check: requires corpus context (Phase 7)",
+    """CHK-REF-QTY-002 — received qty <= delivery challan qty."""
+    return _check_qty_against(
+        ctx, "CHK-REF-QTY-002", DocumentType.DELIVERY_CHALLAN, "delivery challan",
     )
