@@ -25,6 +25,7 @@ export interface MLPredictionDetail {
 }
 
 export interface DocumentAuditResult {
+  document_id: string
   document_name: string
   document_type: string
   passed: boolean

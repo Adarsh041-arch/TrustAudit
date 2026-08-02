@@ -2,6 +2,8 @@
  * Audit V2 API Client — Communicates with FastAPI on port :8100
  */
 
+import type { DocumentAuditResult, PredictionInterval } from '../types/audit'
+
 export const V2_BASE = 'http://localhost:8100/api/v2'
 
 export type ExtractionMode = 'dual' | 'regex' | 'vlm' | 'vlm_text'
@@ -28,6 +30,9 @@ export interface UploadResponse {
   is_vlm_fallback: boolean
   requires_human_review: boolean
   extraction_results?: ExtractionResultEntry[]
+  document_results: DocumentAuditResult[]
+  prediction_interval: PredictionInterval
+  analytics: any
 }
 
 
@@ -87,6 +92,43 @@ export async function fetchFindingsV2(tenantId: string = 'tenant_default'): Prom
   const res = await fetch(`${V2_BASE}/audit/findings?tenant_id=${encodeURIComponent(tenantId)}`)
   if (!res.ok) throw new Error(`Failed to fetch findings (${res.status})`)
   return res.json()
+}
+
+export interface EvalMetrics {
+  accuracy: number | null
+  precision: number | null
+  recall: number | null
+  f1_score: number | null
+  false_positive_rate: number | null
+  false_negative_rate: number | null
+  average_latency_seconds: number | null
+  average_confidence_score: number | null
+}
+
+export interface EvalResponse {
+  metrics: EvalMetrics | null
+  baselines?: any
+}
+
+export async function fetchEvalV2(): Promise<EvalResponse> {
+  const res = await fetch(`${V2_BASE}/audit/eval`)
+  if (!res.ok) throw new Error(`Eval fetch failed with status ${res.status}`)
+  return res.json()
+}
+
+export async function downloadReportV2(
+  format: 'docx' | 'pdf',
+  documents: DocumentAuditResult[],
+  findings: any[],
+  auditTitle = 'Audit V2 Report',
+): Promise<Blob> {
+  const res = await fetch(`${V2_BASE}/audit/report?format=${format}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ documents, findings, audit_title: auditTitle }),
+  })
+  if (!res.ok) throw new Error(`Report download failed with status ${res.status}`)
+  return res.blob()
 }
 
 export async function fetchAuditLogV2(tenantId: string = 'tenant_default'): Promise<AuditLogResponse> {
