@@ -805,17 +805,18 @@ function App() {
             {/* List checklist rules */}
             <div className="space-y-4">
               {[
-                { rid: 'R001', title: 'Document Legibility', sev: 'high', mand: true, desc: 'All text, numbers, barcodes, and signatures in the document must be clearly legible without magnification.' },
-                { rid: 'R002', title: 'Mandatory Fields Present', sev: 'critical', mand: true, desc: 'The document must contain all mandatory fields for its type (invoice items, dates, addresses, seller name).' },
-                { rid: 'R003', title: 'Mathematical Accuracy', sev: 'critical', mand: true, desc: 'Line items calculations must match. Subtotal must match line items sum. Taxes and grand totals must roll up cleanly.' },
-                { rid: 'R004', title: 'Authorization & Signatures', sev: 'high', mand: true, desc: 'Documents requiring authorization must contain a valid wet-ink or digital signature, stamp, or seal.' },
-                { rid: 'R005', title: 'Date Validity', sev: 'medium', mand: false, desc: 'All dates must be valid (not in future, within expected audit period).' },
-                { rid: 'R006', title: 'Currency & Amount Consistency', sev: 'high', mand: true, desc: 'All monetary values must use a single consistent currency symbol throughout the document.' },
-                { rid: 'R007', title: 'Vendor / Customer Info Completeness', sev: 'high', mand: true, desc: 'Supplier and customer information must include legal names, complete address records, and registry IDs.' },
-                { rid: 'R008', title: 'Document Number Uniqueness', sev: 'medium', mand: false, desc: 'Numbering sequence must not be duplicate of another document in the same batch.' },
-                { rid: 'R009', title: 'Payment Terms & Due Date', sev: 'high', mand: true, desc: 'Payment schedules, Net limits, and due dates must be explicitly written.' },
-                { rid: 'R010', title: 'Tax Breakdown & Compliance', sev: 'critical', mand: true, desc: 'Tax rates, split amounts, and tax registration identifiers (VATIN/GSTIN) must be present.' }
+                { rid: 'R001', title: 'Document Legibility', sev: 'medium', mand: false, desc: 'Text, numbers, and key headers should be readable. Minor scan blur is logged as medium risk.' },
+                { rid: 'R002', title: 'Mandatory Fields Present', sev: 'medium', mand: false, desc: 'Evaluates header fields based on specific document type. Missing optional fields on simple bills are not penalized as high severity.' },
+                { rid: 'R003', title: 'Mathematical Accuracy', sev: 'critical', mand: true, desc: 'Core financial integrity check. Line items, subtotal sum, tax splits, discounts, and grand totals must be exact.' },
+                { rid: 'R004', title: 'Authorization & Signatures', sev: 'medium', mand: false, desc: 'Signatures, stamps, or digital seals are checked where applicable. Computer tax invoices without physical stamps are medium severity.' },
+                { rid: 'R005', title: 'Date Validity & Future Dates', sev: 'high', mand: true, desc: 'Dates must be valid and chronologically sound. Documents dated in the future or expired certificates are High Severity violations.' },
+                { rid: 'R006', title: 'Currency & Amount Consistency', sev: 'high', mand: true, desc: 'Monetary values must use a single consistent currency symbol throughout, and line items must reconcile with total figure.' },
+                { rid: 'R007', title: 'Vendor / Customer Info Completeness', sev: 'medium', mand: false, desc: 'Checks presence of legal vendor/customer names. Detailed street addresses or secondary IDs are medium severity if omitted.' },
+                { rid: 'R008', title: 'Document Number Uniqueness', sev: 'low', mand: false, desc: 'Document numbering sequence variations are logged as low-severity audit notes.' },
+                { rid: 'R009', title: 'Payment Terms & Due Date', sev: 'low', mand: false, desc: 'Payment schedules (Net 30) apply primarily to credit invoices. Omission on cash receipts or delivery notes is low severity.' },
+                { rid: 'R010', title: 'Tax Breakdown & Compliance', sev: 'medium', mand: false, desc: 'Tax breakdowns are evaluated when applicable. Non-taxable receipts or simple bills without tax breakdowns are medium severity.' }
               ].map((policy, index) => (
+
                 <div key={index} className="bg-surface-2 border border-border/60 rounded-xl p-5 shadow-sm grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
                   <div className="md:col-span-1 space-y-1">
                     <span className="font-mono text-[11px] text-muted uppercase tracking-wider">Policy Registry</span>
