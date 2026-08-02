@@ -1,4 +1,6 @@
-import pytest
+from io import BytesIO
+
+from docx import Document
 
 from audit_v2.reporting.report_builders import generate_docx_report, generate_pdf_report
 
@@ -25,6 +27,9 @@ def test_docx_report_is_docx_bytes():
     out = generate_docx_report(PAYLOAD)
     assert out[:4] == b"PK\x03\x04"
     assert len(out) > 500
+    docx = Document(BytesIO(out))
+    t = docx.tables[0]
+    assert t.rows[1].cells[0].text == "CHK-ARITH-LINE-001" and t.rows[1].cells[1].text == "high"
 
 
 def test_pdf_report_is_pdf_bytes():

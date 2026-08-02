@@ -46,7 +46,7 @@ def _per_doc_rows(doc: dict[str, Any]) -> list[list[str]]:
 def generate_docx_report(payload: dict[str, Any]) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.shared import Inches
+    from docx.shared import Inches, RGBColor
 
     docs = payload.get("documents", [])
     doc = Document()
@@ -77,8 +77,13 @@ def generate_docx_report(payload: dict[str, Any]) -> bytes:
             for i, title in enumerate(["Rule", "Severity", "Finding & Evidence", "Impact"]):
                 hdr[i].text = title
             for row in rows:
+                cells = table.add_row().cells
                 for i, cell in enumerate(row):
-                    table.add_row().cells[i].text = cell
+                    cells[i].text = cell
+                sev_color = SEVERITY_COLORS.get(cells[1].text.lower(), "#6B7280")
+                sev_runs = cells[1].paragraphs[0].runs
+                if sev_runs:
+                    sev_runs[0].font.color.rgb = RGBColor.from_string(sev_color.lstrip("#"))
             if d.get("preview_base64"):
                 try:
                     import base64
@@ -143,7 +148,17 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
             )
         rows = [["Rule", "Severity", "Finding & Evidence", "Impact"]] + _per_doc_rows(d)
         if len(rows) > 1:
-            t = Table(rows, colWidths=[80, 60, 240, 174])
+            for data_row in rows[1:]:
+                sev = data_row[1]
+                data_row[1] = Paragraph(
+                    sev,
+                    ParagraphStyle(
+                        f"Sev-{sev or 'unknown'}",
+                        parent=body,
+                        textColor=colors.HexColor(SEVERITY_COLORS.get(sev.lower(), "#6B7280")),
+                    ),
+                )
+            t = Table(rows, colWidths=[80, 60, 220, 144])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E5E7EB")),
                 ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
