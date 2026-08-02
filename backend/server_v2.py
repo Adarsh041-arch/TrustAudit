@@ -8,13 +8,17 @@ Exposes production FastAPI endpoints for Audit V2:
 """
 from __future__ import annotations
 
+import json
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
 from audit_v2.analytics.aggregator import aggregate_results, compute_prediction_interval
 from audit_v2.analytics.risk_predictor import predict_risk, severity_counts
@@ -53,6 +57,7 @@ from audit_v2.persistence.permission_matrix import (
     Resource,
 )
 from audit_v2.persistence.provenance import ProvenanceGraph
+from audit_v2.reporting.report_builders import generate_docx_report, generate_pdf_report
 
 CATALOG = load_catalog()
 CATALOG_BY_ID = {c.check_id: c for c in CATALOG.checks}
@@ -125,6 +130,12 @@ class ReviewRequestPayload(BaseModel):
     reviewer_role: str = "reviewer"
     action: str  # confirm | reject_as_false_positive | escalate
     comments: str | None = None
+
+
+class ReportRequest(BaseModel):
+    documents: list[dict[str, Any]]
+    findings: list[dict[str, Any]] = Field(default_factory=list)
+    audit_title: str = "Audit V2 Report"
 
 
 @app.get("/api/v2/health")
@@ -483,6 +494,54 @@ def submit_review(payload: ReviewRequestPayload) -> dict[str, Any]:
         "status": item.status,
         "golden_set_candidates_total": len(REVIEW_QUEUE.golden_set_candidates),
     }
+
+
+@app.get("/api/v2/audit/eval")
+def get_eval() -> dict[str, Any]:
+    path = Path(__file__).resolve().parents[1] / "evaluation" / "baselines" / "v2.json"
+    if not path.exists():
+        return {"metrics": None, "baselines": None}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    cats = data.get("per_category", {})
+    tp = sum(c.get("tp", 0) for c in cats.values())
+    fp = sum(c.get("fp", 0) for c in cats.values())
+    fn = sum(c.get("fn", 0) for c in cats.values())
+    tn = sum(c.get("tn", 0) for c in cats.values())
+    denom = tp + fp + fn + tn
+    overall = data.get("overall", {})
+    return {
+        "metrics": {
+            "accuracy": round((tp + tn) / denom, 4) if denom else None,
+            "precision": overall.get("precision"),
+            "recall": overall.get("recall"),
+            "f1_score": overall.get("f1"),
+            "false_positive_rate": round(fp / (fp + tn), 4) if (fp + tn) else None,
+            "false_negative_rate": round(fn / (fn + tp), 4) if (fn + tp) else None,
+            "average_latency_seconds": None,
+            "average_confidence_score": None,
+        },
+        "baselines": data,
+    }
+
+
+@app.post("/api/v2/audit/report")
+def generate_report(payload: ReportRequest, format: str = "docx") -> FastAPIResponse:
+    if format == "docx":
+        content = generate_docx_report(payload.model_dump())
+        media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        suffix = "docx"
+    elif format == "pdf":
+        content = generate_pdf_report(payload.model_dump())
+        media = "application/pdf"
+        suffix = "pdf"
+    else:
+        raise HTTPException(status_code=400, detail="format must be 'docx' or 'pdf'")
+    stamp = uuid.uuid4().hex[:8]
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="TrustAudit_Report_{stamp}.{suffix}"'},
+    )
 
 
 if __name__ == "__main__":
