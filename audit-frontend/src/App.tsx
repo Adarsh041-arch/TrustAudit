@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { uploadDocumentsV2 } from './api/api_v2'
 import type { UploadResponse } from './api/api_v2'
-
+import type { DocumentAuditResult } from './types/audit'
 
 
 import { useDarkMode } from './hooks/useDarkMode'
@@ -11,18 +11,20 @@ import { VlmStatusBadge } from './components/VlmStatusBadge'
 import { ThreeWayMatchGraph } from './sections/ThreeWayMatchGraph'
 import { AuditLogViewer } from './sections/AuditLogViewer'
 import { ReviewQueueSection } from './sections/ReviewQueueSection'
+import { DashboardSection } from './sections/DashboardSection'
 
-type TabType = 'upload' | 'threeway' | 'findings' | 'review' | 'audit_log'
+type TabType = 'dashboard' | 'upload' | 'threeway' | 'findings' | 'review' | 'audit_log' | 'reports' | 'settings'
 
 export function App() {
   const { dark, toggle } = useDarkMode()
-  const [activeTab, setActiveTab] = useState<TabType>('upload')
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard')
   const [files, setFiles] = useState<FileList | null>(null)
   const [uploading, setUploading] = useState<boolean>(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadResult, setUploadResult] = useState<UploadResponse | null>(null)
   const [allDocuments, setAllDocuments] = useState<any[]>([])
   const [allFindings, setAllFindings] = useState<any[]>([])
+  const [allReportDocs, setAllReportDocs] = useState<DocumentAuditResult[]>([])
 
   async function handleUpload() {
     if (!files || files.length === 0) return
@@ -38,6 +40,9 @@ export function App() {
       }
 
       setAllFindings((prev) => [...prev, ...res.findings])
+      if (res.document_results) {
+        setAllReportDocs((prev) => [...prev, ...res.document_results])
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Document ingestion failed')
     } finally {
@@ -55,11 +60,14 @@ export function App() {
         {/* Navigation Bar */}
         <div className="flex flex-wrap gap-2 pb-2 border-b-[0.5px] border-border">
           {[
+            { id: 'dashboard', label: 'Dashboard' },
             { id: 'upload', label: 'Live Audit Ingestion' },
             { id: 'threeway', label: '3-Way Match Topology' },
             { id: 'findings', label: `Findings (${allFindings.length})` },
             { id: 'review', label: 'Review Queue' },
             { id: 'audit_log', label: 'Cryptographic Audit Log' },
+            { id: 'reports', label: 'Reports' },
+            { id: 'settings', label: 'Settings' },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -74,6 +82,9 @@ export function App() {
             </button>
           ))}
         </div>
+
+        {/* Dashboard Tab */}
+        {activeTab === 'dashboard' && <DashboardSection documents={allReportDocs} />}
 
         {/* Tab 1: Live Ingestion */}
         {activeTab === 'upload' && (
@@ -180,7 +191,7 @@ export function App() {
                               key={field}
                               className="px-2 py-1 rounded-lg bg-white border-[0.5px] border-amber-600/30 text-amber-700 text-[12px] font-mono"
                             >
-                              {field}: {diff}
+                              {field}: {String(diff)}
                             </span>
                           ))}
                         </div>
@@ -285,6 +296,20 @@ export function App() {
 
         {/* Tab 5: Audit Log */}
         {activeTab === 'audit_log' && <AuditLogViewer />}
+
+        {/* Tab 6: Reports */}
+        {activeTab === 'reports' && (
+          <FlatCard>
+            <p className="text-[13px] text-muted py-6">Reports tab - coming soon.</p>
+          </FlatCard>
+        )}
+
+        {/* Tab 7: Settings */}
+        {activeTab === 'settings' && (
+          <FlatCard>
+            <p className="text-[13px] text-muted py-6">Settings tab - coming soon.</p>
+          </FlatCard>
+        )}
       </main>
     </div>
   )
