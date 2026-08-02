@@ -11,6 +11,33 @@
 
 ## Build Log
 
+### 2026-08-02 (SDD task 6, V1-parity) — enriched upload response (`f80d93c`)
+
+- **`backend/server_v2.py`** — upload response now carries per-document derived fields plus batch analytics. New pure helpers `_failed_rule(f)` (catalog-backed rule card: title/finding/evidence/impact/recommendation/severity/page) and `enrich_document(doc, filename, findings, data, mime_type)` producing the V1 `DocumentAuditResult` shape + `document_id`: score (severity-weighted), `risk_level`/`risk_explanation`, `failed_rules`, `ml_prediction` (rule-based card with mode "Rule-based (V2)"), `confidence_score`, `human_review_recommended`, remarks/summary, base64 page-1 preview, `page_count`, header metadata. Response gains `document_results`, `prediction_interval` (95% CI on mean score), and `analytics` (KPIs + chart data) from the V1-parity ports (`risk_scorer`, `risk_predictor`, `aggregator`, `preview`).
+- **Wiring** — per-loop `pending_enrich` tuples `(doc, filename, data, mime)` collected during ingestion; `enriched` built after `batch_findings` exists (cluster audit), so scores reflect the final finding set.
+- **`tests/test_server_v2.py`** — 7th test `test_upload_response_has_enriched_document_results` (7 passed).
+- **Brief deviations (documented in task-6 report)**: (1) the brief's white-PNG fixture cannot extract locally — no text layer and no `NVIDIA_API_KEY`, so regex raises and the VLM pass is skipped → HTTP 400; replaced with `sample_docs/INV-2026-0715_NewTech_Solutions.pdf` per the brief's fallback note (no `tests/fixtures/` exists). (2) The brief's `risk_distribution == []` assertion is unsatisfiable with 1 audited doc — `aggregate_results` always emits one bucket per doc (verified by `tests/test_aggregator.py:13,35`); changed to `len(...) == 1`.
+- **Verification**: `python -m pytest tests/test_server_v2.py -v` → 7 passed; `ruff check backend/server_v2.py` → B008 baseline only.
+
+### 2026-08-02 (SDD task 5 fix round) — reviewer defects F1–F4 fixed (`1e44010`)
+
+Review of task 5 flagged two Important defects inherited from the brief's verbatim code, both fixed:
+
+- **F1** — DOCX failed-rules table was row-per-cell malformed (`table.add_row()` inside the per-cell loop → diagonal single-cell rows). Now one row per rule: `cells = table.add_row().cells` then fill `cells[i].text`.
+- **F2** — `SEVERITY_COLORS` was dead code. DOCX severity column run font color via `RGBColor.from_string(sev_color.lstrip("#"))`; PDF severity cell rendered as Paragraph with `textColor` (grey fallback). Verified DOCX run `C2410C`, PDF span `0xc2410c` (fitz).
+- **F3** — PDF `colWidths` `[80, 60, 240, 174]` (554pt) exceeded the 504pt letter frame → `[80, 60, 220, 144]`.
+- **F4** — removed unused `import pytest` from the test.
+
+Regression guard: DOCX test reopens the output and asserts rule_id + severity share row 1 of the table. Verification: 2 tests pass, ruff + mypy clean.
+
+### 2026-08-02 (SDD task 5, V1-parity) — DOCX/PDF report builders + reportlab
+
+- **`audit_v2/reporting/report_builders.py`** — `generate_docx_report(payload) -> bytes` (python-docx, `PK\x03\x04` magic) and `generate_pdf_report(payload) -> bytes` (reportlab, `%PDF` magic) over enriched audit payloads `{"documents": [...], "findings": [...], "audit_title": str}`. Ported from V1 report_builders; the V1 NameError-on-missing-reportlab bug is not reproduced (`logger` defined at module level, `REPORTLAB_AVAILABLE` flag with DOCX fallback). `SEVERITY_COLORS` map and per-doc failed-rule tables carried over.
+- **`audit_v2/pyproject.toml`** — added `reportlab>=4.0` to `dependencies` (installed 4.5.1).
+- **`tests/test_report_builders.py`** — 2 tests: DOCX output starts `PK\x03\x04` and > 500 bytes; PDF output starts `%PDF` and > 500 bytes.
+- **Lint/typecheck notes**: brief's verbatim code tripped the repo's ruff config (line-length 100, F401 unused `qn`/`inch` imports, UP017 `timezone.utc`); fixed with formatting-only changes. reportlab ships no stubs — handled with inline `# type: ignore[import-untyped]` on the 4 imports (repo's live convention for untyped deps; the `audit_v2/pyproject.toml` mypy overrides are never loaded by CI's `mypy audit_v2/`, which runs with Default config from the repo root — `Config File: Default`). `mypy audit_v2/reporting/` clean; `ruff check audit_v2/reporting/` clean.
+- **Verification**: `python -m pytest tests/test_report_builders.py -v` → 2 passed. Full-suite run is blocked by pre-existing root-level `test_nvidia.py` (`exit(1)` at import without `NVIDIA_API_KEY`; fails identically on clean tree) and pre-existing mypy errors under mypy 2.3.0 (requests stubs, `merge.py`, fitz `import-untyped` — 18 errors before this task).
+
 ### 2026-08-02 (session 5f) — Dual Extraction + Text-Doc Wired into API & UI
 
 - **`backend/server_v2.py`** — upload endpoint now runs the classifier (`classify_document_from_data`) before `extract_document`, so contracts/letters take the VLM-text path and tabular docs the dual path. Responses expose `extraction_mode` (`dual`/`regex`/`vlm`/`vlm_text`), `extraction_results` per file (disagreement count/fields, narrative flag), and batch-level `requires_human_review`. Each extraction disagreement enqueues a `NEEDS_REVIEW` finding (synthetic `CHK-EXTRACT-DISAGREE-001`, deterministic fingerprint) into the existing review queue and logs an `extraction_disagreement` audit entry.

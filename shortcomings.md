@@ -300,3 +300,27 @@ all verdict-relevant fields.
 | Disagreement findings are enqueued once at upload time only. Re-uploading or re-running adjudication on an existing document does not refresh the queue; `REVIEW_QUEUE` is in-memory and lost on restart (pre-existing, now with more items). | backend/server_v2.py | Review work is ephemeral across server restarts. |
 | `requires_human_review` is computed per-batch from disagreements, but the UI banner disappears once the upload result is stale; the review-queue tab is the only durable surface for disagreements. | audit-frontend/src/App.tsx | Acceptable for v1 of the UI; a findings-level "needs review" count would be more honest. |
 | `B008` (FastAPI `File(...)` default) remains the single ruff violation in server_v2.py — pre-existing FastAPI idiom, not introduced here. | backend/server_v2.py:138 | Baseline lint noise only. |
+
+---
+
+## 15. DOCX/PDF report builders (2026-08-02, SDD task 5)
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| **`mypy audit_v2/` (CI job) runs with Default config and was already red before this task** — the mypy settings in `audit_v2/pyproject.toml` (strict, overrides) are never loaded because there is no config file at the repo root where CI invokes mypy, and locally installed mypy 2.3.0 no longer honors `ignore_missing_imports` anyway. Pre-existing: `requests` (no stubs installed), `audit_v2/extraction/merge.py` (4 errors), fitz `import-untyped` in `vlm_extractor.py:13`. | CI `mypy audit_v2/` | Typecheck gate is noise; this task's new file adds 0 errors (inline ignores) but the job stays red regardless. Fix properly by adding a root-level config or switching CI to `mypy --config-file audit_v2/pyproject.toml` + adding `types-requests`. |
+| **Full pytest suite cannot run locally without `NVIDIA_API_KEY`** — pre-existing root-level `test_nvidia.py` calls `exit(1)` at import time when the key is unset, aborting collection of the whole suite. | `test_nvidia.py:10` | Any `pytest` run from the repo root without the key dies before collecting; unrelated to Task 5 but blocks suite-level verification. |
+| **PDF fallback silently returns DOCX bytes.** When reportlab is missing, `generate_pdf_report` returns a DOCX payload (V1 behavior, kept verbatim) — a caller checking `%PDF` magic gets a hard failure instead of a clear error. | reporting/report_builders.py | Edge case only (reportlab is a hard dependency now); documented as the intended V1-parity fallback. |
+| ~~**DOCX failed-rules table row-per-cell malformed**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — `table.add_row()` was inside the per-cell loop, so each rule became N diagonal single-cell rows; now one row per rule. Regression-guarded by the DOCX test's same-row assertion. | — | — |
+| ~~**`SEVERITY_COLORS` was dead code**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — wired into DOCX severity cell run color and PDF severity Paragraph `textColor` (grey fallback). | — | — |
+| ~~**PDF table colWidths exceeded the letter frame**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — `[80, 60, 240, 174]` (554pt) → `[80, 60, 220, 144]` (504pt). |
+
+---
+
+## 16. Enriched upload response (2026-08-02, SDD task 6)
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| **The task brief's test fixture was not executable as written.** A white 50x50 PNG has no text layer, so the regex extractor raises `ValueError("No extractable text found in document")`; with `NVIDIA_API_KEY` unset the VLM pass is skipped, and the endpoint returns HTTP 400 — the test could never reach `document_results`. Resolved per the brief's own fallback note by uploading `sample_docs/INV-2026-0715_NewTech_Solutions.pdf` instead. | tests/test_server_v2.py | Test now exercises the real regex extraction path; PNG/image ingestion remains untested via this route (covered implicitly by `render_pages_to_jpeg` image passthrough). |
+| **The brief's `risk_distribution == []` assertion was unsatisfiable.** `aggregate_results` emits one risk bucket per audited doc (counter over `risk_level`), so with `total_audited == 1` the distribution has exactly 1 entry (confirmed by `tests/test_aggregator.py:13,35`). Changed to `len(...) == 1`. | tests/test_server_v2.py | Brief-internal contradiction; resolved, not weakened — shape assertion retained. |
+| **`enrich_document` embeds a base64 page-1 preview per document.** `generate_preview` returns a base64 JPEG (quality 80, ≤180px, typically tens of KB). With large multi-doc batches this materially inflates the upload JSON payload on every response. | backend/server_v2.py::enrich_document | Acceptable for V1 parity (same as V1's runner); consider a `include_previews=false` query param if payload size becomes a problem. |
+| **Scores depend on corpus state.** `enriched` scores count `CHK-DUP-DOC-001` findings against the whole `DOCUMENTS_STORE`, so re-uploading the same file can lower the second copy's score; `compute_prediction_interval` on `n=1` yields the hardcoded ±12.5 band. Both are V1-parity behavior. | backend/server_v2.py | Deterministic per response; differs across uploads of identical content. |
