@@ -28,3 +28,4 @@ sample_docs/RS*.pdf
 .ruff_cache/
 htmlcov/
 *.egg-info/
+.superpowers/
