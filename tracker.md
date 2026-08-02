@@ -11,7 +11,19 @@
 
 ## Build Log
 
-### 2026-08-02 (session 5c) — Adjudicator, Provenance Graph & Review Queue Shipped
+### 2026-08-02 (session 5d) — Audit V2 Frontend UI & FastAPI Server (:8100) Shipped
+
+Completed Frontend Execution for Audit V2:
+
+- **`backend/server_v2.py`** — Production FastAPI backend on port `:8100` exposing V2 document upload (with VLM fallback), 3-way match cluster correlation, active findings, hash-chained audit log with live `verify_chain()` validation, and human review queue endpoints.
+- **`audit-frontend/`** — Built modern React dark glassmorphism UI tabs:
+  - **Live Audit Ingestion**: Document drag-and-drop with VLM Vision AI status badges and header extraction stats.
+  - **3-Way Match Topology**: Interactive visual cluster viewer (PO ↔ DC ↔ Invoice) and critical over-billing fraud alerts.
+  - **Findings Inspector**: Active findings with decision fingerprints.
+  - **Human Review Queue**: Priority workspace (`severity × value × age`) with `Confirm`, `Reject (False Alarm)`, and `Escalate` actions.
+  - **Cryptographic Audit Log**: Visual hash-chain timeline with real-time SHA-256 integrity verification badge.
+- **Tests**: Created `tests/test_server_v2.py` (all 5 API tests passing), `npm run build` clean in 931ms.
+
 
 Completed Phases 8, 9, and 10 (PHASES_V2 §4):
 

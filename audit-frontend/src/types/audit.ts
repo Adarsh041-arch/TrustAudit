@@ -3,11 +3,13 @@ export interface FailedChecklistItem {
   rule_title: string
   finding: string
   evidence: string
+  description?: string
   impact: string
   recommendation: string
   severity: 'critical' | 'high' | 'medium' | 'low'
   page_number: number | null
 }
+
 
 export interface MLProbabilities {
   compliant: number
