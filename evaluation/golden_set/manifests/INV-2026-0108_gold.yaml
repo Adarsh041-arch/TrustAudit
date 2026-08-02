@@ -1,0 +1,27 @@
+generator_version: 2.0.0
+document_id: INV-2026-0108
+doc_type: invoice
+cluster_id: cluster-05
+source: evaluation/golden_set/docs/INV-2026-0108.pdf
+description: 'Synthetic invoice, cluster cluster-05, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0108
+  vendor_gstin: 36WYZLO2007P5ZM
+  subtotal: '228300.00'
+  grand_total: '269394.00'
+  po_reference: PO-2026-0567
+expected_lines:
+- qty: '7'
+  rate: '2500.00'
+  total: '17500.00'
+  hsn: '8471'
+- qty: '11'
+  rate: '18000.00'
+  total: '198000.00'
+  hsn: '8517'
+- qty: '16'
+  rate: '800.00'
+  total: '12800.00'
+  hsn: '8471'

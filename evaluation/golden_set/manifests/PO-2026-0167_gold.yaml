@@ -1,0 +1,36 @@
+generator_version: 2.0.0
+document_id: PO-2026-0167
+doc_type: purchase_order
+cluster_id: cluster-01
+source: evaluation/golden_set/docs/PO-2026-0167.pdf
+description: 'Synthetic PO, cluster cluster-01, defects: [''line_item_error'']'
+defects:
+- line_item_error
+expected_findings:
+- check_id: CHK-ARITH-LINE-001
+  expected_status: FAIL
+  defect: line_item_error
+- check_id: CHK-ARITH-ROUNDING-001
+  expected_status: FAIL
+  defect: line_item_error
+expected_fields:
+  document_id: PO-2026-0167
+  vendor_gstin: 27YWNTG0740T0ZF
+  grand_total: '595100.00'
+expected_lines:
+- qty: '10'
+  rate: '8500.00'
+  total: '85100.00'
+  hsn: '9401'
+- qty: '4'
+  rate: '45000.00'
+  total: '180000.00'
+  hsn: '8471'
+- qty: '15'
+  rate: '12000.00'
+  total: '180000.00'
+  hsn: '9403'
+- qty: '6'
+  rate: '25000.00'
+  total: '150000.00'
+  hsn: '8443'

@@ -1,0 +1,31 @@
+generator_version: 2.0.0
+document_id: INV-2026-0106
+doc_type: invoice
+cluster_id: cluster-23
+source: evaluation/golden_set/docs/INV-2026-0106.pdf
+description: 'Synthetic invoice, cluster cluster-23, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0106
+  vendor_gstin: 23LICBU5522M7ZP
+  subtotal: '1173000.00'
+  grand_total: '1384140.00'
+  po_reference: PO-2026-2355
+expected_lines:
+- qty: '3'
+  rate: '45000.00'
+  total: '135000.00'
+  hsn: '8471'
+- qty: '19'
+  rate: '52000.00'
+  total: '988000.00'
+  hsn: '8528'
+- qty: '2'
+  rate: '2500.00'
+  total: '5000.00'
+  hsn: '8471'
+- qty: '3'
+  rate: '15000.00'
+  total: '45000.00'
+  hsn: '8543'

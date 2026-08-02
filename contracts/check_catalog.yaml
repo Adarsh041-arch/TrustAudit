@@ -1,0 +1,387 @@
+catalog_version: "1.0.0"
+created_at: "2026-07-25T17:00:00Z"
+checks:
+  # ─── Arithmetic (7 checks, all deterministic) ───────────────────────────────
+  - check_id: CHK-ARITH-LINE-001
+    title: Line-item total equals quantity times unit price
+    category: arithmetic
+    applies_to: [invoice, purchase_order]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Line {n}: {qty} x {unit_price} = {expected}, stated {actual}"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-SUBTOTAL-001
+    title: Sum of line-item totals equals stated subtotal
+    category: arithmetic
+    applies_to: [invoice, purchase_order, goods_receipt_note]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, subtotal]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Line total sum {sum_lines} != stated subtotal {stated_subtotal}"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-TAX-001
+    title: Tax rate matches HSN/SAC code prescribed rate
+    category: arithmetic
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, tax_lines]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "HSN {hsn} charged {applied_rate}, prescribed rate {prescribed_rate}"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-TAX-002
+    title: CGST + SGST equals total tax, both calculated correctly
+    category: arithmetic
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [tax_lines]
+    tolerance: {type: absolute, value: "0.01", currency_scaled: true}
+    failure_message: "CGST {cgst} + SGST {sgst} != {total_tax}, or calc error"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-DISCOUNT-001
+    title: Discount does not exceed maximum allowed percentage
+    category: arithmetic
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [discounts, subtotal]
+    tolerance: {type: relative, value: "0.05"}
+    failure_message: "Discount {discount_pct}% exceeds max {max_pct}% of subtotal"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-GRAND-001
+    title: Grand total equals subtotal plus taxes minus discounts
+    category: arithmetic
+    applies_to: [invoice, purchase_order]
+    severity: critical
+    determinism: deterministic
+    inputs: [subtotal, tax_lines, discounts, grand_total]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Subtotal {sub} + tax {tax} - discount {disc} = {expected}, stated {actual}"
+    requires_human_review: false
+
+  - check_id: CHK-ARITH-ROUNDING-001
+    title: Per-line rounding accumulates within tolerance
+    category: arithmetic
+    applies_to: [invoice, purchase_order]
+    severity: low
+    determinism: deterministic
+    inputs: [line_items]
+    tolerance: {type: absolute, value: "0.01", currency_scaled: true}
+    failure_message: "Rounding discrepancy {delta} exceeds tolerance for {line_count} lines"
+    requires_human_review: false
+
+  # ─── Roll-forward (1 check, deterministic) ──────────────────────────────────
+  - check_id: CHK-RFWD-BALANCE-001
+    title: Opening balance plus receipts minus payments equals closing balance
+    category: roll_forward
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [opening_balance, receipts, payments, closing_balance]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Opening {open} + receipts {rec} - payments {pay} = {expected}, stated closing {actual}"
+    requires_human_review: false
+
+  # ─── Sequence / Gap (3 checks, deterministic) ───────────────────────────────
+  - check_id: CHK-SEQ-INVNUM-001
+    title: Invoice numbers are sequential within batch
+    category: sequence
+    applies_to: [invoice]
+    severity: medium
+    determinism: deterministic
+    inputs: [document_sequence]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Gap in invoice sequence: {prev} -> {current} (missing {gap_count})"
+    requires_human_review: false
+
+  - check_id: CHK-SEQ-PONUM-001
+    title: PO numbers are sequential within batch
+    category: sequence
+    applies_to: [purchase_order]
+    severity: medium
+    determinism: deterministic
+    inputs: [document_sequence]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Gap in PO sequence: {prev} -> {current}"
+    requires_human_review: false
+
+  - check_id: CHK-SEQ-CHALLAN-001
+    title: Delivery challan numbers are sequential within batch
+    category: sequence
+    applies_to: [delivery_challan]
+    severity: medium
+    determinism: deterministic
+    inputs: [document_sequence]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Gap in challan sequence: {prev} -> {current}"
+    requires_human_review: false
+
+  # ─── Threshold (3 checks, deterministic) ────────────────────────────────────
+  - check_id: CHK-THRESHOLD-LINE-001
+    title: No single line item exceeds PO total value
+    category: threshold
+    applies_to: [invoice, purchase_order]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, document_total]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n} value {line_amt} exceeds total {total}"
+    requires_human_review: false
+
+  - check_id: CHK-THRESHOLD-DISC-001
+    title: Discount percentage is within allowed range
+    category: threshold
+    applies_to: [invoice]
+    severity: medium
+    determinism: deterministic
+    inputs: [discounts]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Discount {value}% is outside allowed range [0, {max_pct}]"
+    requires_human_review: false
+
+  - check_id: CHK-THRESHOLD-TAXRATE-001
+    title: Tax rate is within valid GST slab rates
+    category: threshold
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [tax_lines]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Tax rate {rate} is not a valid GST slab rate"
+    requires_human_review: false
+
+  # ─── Temporal (4 checks, deterministic) ─────────────────────────────────────
+  - check_id: CHK-TEMP-INVDATE-001
+    title: Invoice date is not after received date
+    category: temporal
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [invoice_date, received_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Invoice date {inv_date} is after received date {recv_date}"
+    requires_human_review: false
+
+  - check_id: CHK-TEMP-PODATE-001
+    title: PO date is not after invoice date
+    category: temporal
+    applies_to: [invoice, purchase_order]
+    severity: high
+    determinism: deterministic
+    inputs: [po_date, invoice_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "PO date {po_date} is after invoice date {inv_date}"
+    requires_human_review: false
+
+  - check_id: CHK-TEMP-DELIVERY-001
+    title: Delivery date is not after GRN date
+    category: temporal
+    applies_to: [delivery_challan, goods_receipt_note]
+    severity: high
+    determinism: deterministic
+    inputs: [delivery_date, grn_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Delivery date {del_date} is after GRN date {grn_date}"
+    requires_human_review: false
+
+  - check_id: CHK-TEMP-EXPIRY-001
+    title: Document has not passed its expiry date
+    category: temporal
+    applies_to: [invoice, purchase_order]
+    severity: medium
+    determinism: deterministic
+    inputs: [expiry_date, current_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Document expired on {expiry_date}"
+    requires_human_review: false
+
+  # ─── Reference Integrity (4 checks, deterministic) ──────────────────────────
+  - check_id: CHK-REF-PO-001
+    title: Invoice references a valid PO number
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [po_reference]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Invoice {doc_id} has no PO reference or PO does not exist"
+    requires_human_review: false
+
+  - check_id: CHK-REF-GST-001
+    title: GSTIN format is valid (15 chars, alphanumeric)
+    category: reference_integrity
+    applies_to: [invoice, purchase_order]
+    severity: high
+    determinism: deterministic
+    inputs: [gstin]
+    tolerance: {type: none, value: "0"}
+    failure_message: "GSTIN {gstin} does not match valid format"
+    requires_human_review: false
+
+  - check_id: CHK-REF-HSN-001
+    title: HSN/SAC code is present and valid
+    category: reference_integrity
+    applies_to: [invoice, delivery_challan]
+    severity: medium
+    determinism: deterministic
+    inputs: [line_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "HSN/SAC code missing or invalid for line {n}"
+    requires_human_review: false
+
+  - check_id: CHK-REF-BANK-001
+    title: Bank details (account number, IFSC) are present
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: low
+    determinism: deterministic
+    inputs: [bank_details]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Bank details are incomplete: missing {missing_field}"
+    requires_human_review: false
+
+  # ─── Format / Completeness (5 checks, 4 deterministic + 1 model_assisted) ───
+  - check_id: CHK-FORMAT-MANDATORY-001
+    title: All mandatory fields are present
+    category: format_completeness
+    applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
+    severity: critical
+    determinism: deterministic
+    inputs: [document_fields]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Missing mandatory field(s): {missing_fields}"
+    requires_human_review: false
+
+  - check_id: CHK-FORMAT-MANDATORY-002
+    title: Line items have required sub-fields (description, qty, rate, amount)
+    category: format_completeness
+    applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
+    severity: high
+    determinism: deterministic
+    inputs: [line_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n} missing required field: {field}"
+    requires_human_review: false
+
+  - check_id: CHK-FORMAT-TAXBREAKDOWN-001
+    title: Tax breakdown is present with rate, taxable value, and amount
+    category: format_completeness
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [tax_lines]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Tax line {n} missing required breakdown field"
+    requires_human_review: false
+
+  - check_id: CHK-FORMAT-CURRENCY-001
+    title: All monetary values use consistent currency format
+    category: format_completeness
+    applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
+    severity: low
+    determinism: deterministic
+    inputs: [all_monetary_fields]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Inconsistent currency format at {field}: {raw_value}"
+    requires_human_review: false
+
+  - check_id: CHK-FORMAT-WORDS-001
+    title: Amount in words matches numeric grand total
+    category: format_completeness
+    applies_to: [invoice]
+    severity: medium
+    determinism: model_assisted
+    inputs: [amount_in_words, grand_total]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Amount in words \"{words}\" does not match total {total}"
+    requires_human_review: true
+
+  # ─── Quantity / Delivery (2 checks, deterministic) ──────────────────────────
+  - check_id: CHK-REF-QTY-001
+    title: Invoiced quantity does not exceed PO quantity
+    category: reference_integrity
+    applies_to: [invoice, delivery_challan]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, po_line_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n}: invoiced qty {inv_qty} > PO qty {po_qty}"
+    requires_human_review: false
+
+  - check_id: CHK-REF-QTY-002
+    title: Received quantity does not exceed delivery challan quantity
+    category: reference_integrity
+    applies_to: [goods_receipt_note]
+    severity: high
+    determinism: deterministic
+    inputs: [grn_items, dc_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n}: received qty {recv_qty} > DC qty {dc_qty}"
+    requires_human_review: false
+
+  # ─── Cross-document / corpus (5 checks, deterministic, Phase 7) ─────────────
+  # These SKIP on single-document runs and execute when the workflow provides
+  # a TransactionCluster / CorpusIndex on the CheckContext.
+  - check_id: CHK-DUP-DOC-001
+    title: Document is not a duplicate within the tenant corpus
+    category: duplicate
+    applies_to: [invoice, purchase_order]
+    severity: critical
+    determinism: deterministic
+    inputs: [document_id, vendor_name, grand_total, invoice_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Document {doc} duplicates {dupes} ({signature})"
+    requires_human_review: true
+
+  - check_id: CHK-XDOC-QTY-001
+    title: Invoiced quantity does not exceed received quantity
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, grn_items]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Line {n}: invoiced qty {inv_qty} > received qty {recv_qty}"
+    requires_human_review: false
+
+  - check_id: CHK-XDOC-PRICE-001
+    title: Invoiced unit price matches PO unit price within tolerance
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [line_items, po_line_items]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Line {n}: invoiced price {inv_price} != PO price {po_price}"
+    requires_human_review: false
+
+  - check_id: CHK-XDOC-RECEIPT-001
+    title: Invoice above value threshold has a goods receipt
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: high
+    determinism: deterministic
+    inputs: [grand_total, cluster_documents]
+    tolerance: {type: absolute, value: "50000"}
+    failure_message: "Invoice total {total} above {threshold} with no goods receipt"
+    requires_human_review: true
+
+  - check_id: CHK-XDOC-CUMUL-001
+    title: Cumulative invoiced across cluster does not exceed PO value
+    category: reference_integrity
+    applies_to: [invoice]
+    severity: critical
+    determinism: deterministic
+    inputs: [cluster_invoices, po_grand_total]
+    tolerance: {type: absolute, value: "0.00", currency_scaled: true}
+    failure_message: "Cumulative invoiced {cumulative} exceeds PO value {po_value}"
+    requires_human_review: true

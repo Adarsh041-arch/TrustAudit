@@ -1,0 +1,27 @@
+generator_version: 2.0.0
+document_id: INV-2026-0006
+doc_type: invoice
+cluster_id: cluster-01
+source: evaluation/golden_set/docs/INV-2026-0006.pdf
+description: 'Synthetic invoice, cluster cluster-01, defects: [''subtotal_error'']'
+defects:
+- subtotal_error
+expected_findings:
+- check_id: CHK-ARITH-SUBTOTAL-001
+  expected_status: FAIL
+  defect: subtotal_error
+expected_fields:
+  document_id: INV-2026-0006
+  vendor_gstin: 27ENDEM8088D0ZY
+  subtotal: '195100.00'
+  grand_total: '230218.00'
+  po_reference: PO-2026-0137
+expected_lines:
+- qty: '14'
+  rate: '200.00'
+  total: '2800.00'
+  hsn: '9608'
+- qty: '16'
+  rate: '12000.00'
+  total: '192000.00'
+  hsn: '9403'

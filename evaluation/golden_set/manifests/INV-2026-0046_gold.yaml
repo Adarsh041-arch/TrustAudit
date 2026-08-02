@@ -1,0 +1,35 @@
+generator_version: 2.0.0
+document_id: INV-2026-0046
+doc_type: invoice
+cluster_id: cluster-19
+source: evaluation/golden_set/docs/INV-2026-0046.pdf
+description: 'Synthetic invoice, cluster cluster-19, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0046
+  vendor_gstin: 23XOQHG8446F7ZQ
+  subtotal: '938600.00'
+  grand_total: '1107548.00'
+  po_reference: PO-2026-1981
+expected_lines:
+- qty: '12'
+  rate: '300.00'
+  total: '3600.00'
+  hsn: '4802'
+- qty: '13'
+  rate: '6500.00'
+  total: '84500.00'
+  hsn: '8504'
+- qty: '5'
+  rate: '8500.00'
+  total: '42500.00'
+  hsn: '9401'
+- qty: '12'
+  rate: '13500.00'
+  total: '162000.00'
+  hsn: '8472'
+- qty: '17'
+  rate: '38000.00'
+  total: '646000.00'
+  hsn: '8415'

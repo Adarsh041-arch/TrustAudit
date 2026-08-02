@@ -3,15 +3,26 @@ import datetime
 import json
 import os
 from io import BytesIO
+from functools import lru_cache
 from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
+import sys
+
+# langchain_core.language_models.base does an optional `from transformers import
+# GPT2TokenizerFast` at import time; importing transformers scans all 600+ installed
+# dists via importlib.metadata and takes 50-90s here (looks like a hang). Nothing in
+# this project uses transformers, so block the optional import entirely.
+# ponytail: remove if we ever actually need transformers.
+sys.modules.setdefault("transformers", None)
+
 import fitz
 from PIL import Image
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_ollama import ChatOllama
 
 from app.schemas import (
     AuditChecklist,
@@ -53,6 +64,13 @@ class VLMContentBuilder:
 
     @classmethod
     def build(cls, file_path: str) -> list:
+        # Callers mutate the returned list (insert prompt text at index 0),
+        # so cache the immutable b64 payloads and rebuild the list per call.
+        return [dict(part) for part in cls._build_cached(file_path)]
+
+    @classmethod
+    @lru_cache(maxsize=32)
+    def _build_cached(cls, file_path: str) -> tuple:
         ext = os.path.splitext(file_path)[1].lower()
         content: list = []
 
@@ -75,7 +93,7 @@ class VLMContentBuilder:
                     "image_url": {"url": f"data:image/jpeg;base64,{b64}"},
                 })
 
-        return content
+        return tuple(content)
 
 
 def _detect_mime_type(file_path: str) -> str:
@@ -131,13 +149,32 @@ class VLMClient:
         self,
         model_name: str = "gemini-2.5-flash",
         api_key: Optional[str] = None,
+        provider: str = "google",
     ):
-        self.model = ChatGoogleGenerativeAI(
-            model=model_name,
-            api_key=api_key or os.getenv("GOOGLE_API_KEY"),
-            temperature=0.1,
-            max_output_tokens=16384,
-        )
+        if provider == "ollama":
+            self.model = ChatOllama(
+                model=model_name,
+                temperature=0.1,
+                num_predict=16384,
+            )
+        elif provider == "nvidia":
+            from langchain_openai import ChatOpenAI
+
+            self.model = ChatOpenAI(
+                base_url="https://integrate.api.nvidia.com/v1",
+                api_key=api_key or os.getenv("NVIDIA_API_KEY"),
+                model=model_name,
+                temperature=0.1,
+                max_tokens=16384,
+            )
+        else:
+            self.model = ChatGoogleGenerativeAI(
+                model=model_name,
+                api_key=api_key or os.getenv("GOOGLE_API_KEY"),
+                temperature=0.1,
+                max_output_tokens=16384,
+            )
+        self._provider = provider
 
     # ------------------------------------------------------------------
     # Document summarization
@@ -307,7 +344,8 @@ class VLMClient:
     # ------------------------------------------------------------------
     def _invoke(self, content: list) -> str:
         msg = HumanMessage(content=content)
-        logger.info("  [VLM] Calling Gemini API ...")
+        provider = getattr(self, "_provider", "google")
+        logger.info("  [VLM] Calling %s ...", {"ollama": "Ollama", "nvidia": "NVIDIA API"}.get(provider, "Gemini API"))
         try:
             resp = self.model.invoke([msg])
             response_len = len(resp.content) if resp.content else 0
@@ -335,10 +373,16 @@ _client: Optional[VLMClient] = None
 
 
 def get_vlm_client(
-    model_name: str = "gemini-2.5-flash",
+    model_name: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> VLMClient:
     global _client
     if _client is None:
-        _client = VLMClient(model_name=model_name, api_key=api_key)
+        provider = os.getenv("LLM_PROVIDER", "google")
+        default_model = {
+            "ollama": "gemma4:31b-cloud",
+            "nvidia": "google/diffusiongemma-26b-a4b-it",
+        }.get(provider, "gemini-2.5-flash")
+        resolved = model_name or os.getenv("GEMINI_MODEL", default_model)
+        _client = VLMClient(model_name=resolved, api_key=api_key, provider=provider)
     return _client

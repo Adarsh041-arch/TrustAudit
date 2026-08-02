@@ -1,0 +1,27 @@
+generator_version: 2.0.0
+document_id: INV-2026-0135
+doc_type: invoice
+cluster_id: cluster-16
+source: evaluation/golden_set/docs/INV-2026-0135.pdf
+description: 'Synthetic invoice, cluster cluster-16, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: INV-2026-0135
+  vendor_gstin: 24KOLIP4165V3Z8
+  subtotal: '472500.00'
+  grand_total: '557550.00'
+  po_reference: PO-2026-1678
+expected_lines:
+- qty: '11'
+  rate: '21000.00'
+  total: '231000.00'
+  hsn: '8471'
+- qty: '3'
+  rate: '8500.00'
+  total: '25500.00'
+  hsn: '9401'
+- qty: '18'
+  rate: '12000.00'
+  total: '216000.00'
+  hsn: '9403'

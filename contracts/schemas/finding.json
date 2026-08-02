@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/finding.json",
+  "title": "Finding",
+  "description": "A single audit finding — result of executing one check on one document.",
+  "type": "object",
+  "properties": {
+    "finding_id": {
+      "type": "string",
+      "pattern": "^fnd_[0-9A-Za-z]{16,26}$"
+    },
+    "check_id": {
+      "type": "string",
+      "pattern": "^CHK-[A-Z]+-[A-Z]+-[0-9]{3}$"
+    },
+    "document_id": {
+      "type": "string",
+      "pattern": "^doc_[0-9A-Za-z]{16,26}$"
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "check_type": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PASS", "FAIL", "SKIPPED", "NEEDS_REVIEW"]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["critical", "high", "medium", "low"]
+    },
+    "expected": {
+      "type": "string",
+      "description": "Expected value as string (monetary values serialized as strings)"
+    },
+    "actual": {
+      "type": "string",
+      "description": "Actual value as string"
+    },
+    "delta": {
+      "type": "string",
+      "description": "Difference as string"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$"
+    },
+    "tolerance": {
+      "type": "string"
+    },
+    "message": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "provenance.json"
+      }
+    },
+    "decision_fingerprint": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "ruleset_version": {
+      "type": "string"
+    },
+    "requires_human_review": {
+      "type": "boolean"
+    },
+    "supersedes": {
+      "type": ["string", "null"],
+      "pattern": "^fnd_[0-9A-Za-z]{16,26}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "schema_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$"
+    }
+  },
+  "required": [
+    "finding_id", "check_id", "document_id", "tenant_id",
+    "status", "severity", "message", "evidence",
+    "decision_fingerprint", "ruleset_version",
+    "created_at", "schema_version"
+  ]
+}

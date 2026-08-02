@@ -1,0 +1,21 @@
+generator_version: 2.0.0
+document_id: PO-2026-0152
+doc_type: purchase_order
+cluster_id: cluster-22
+source: evaluation/golden_set/docs/PO-2026-0152.pdf
+description: 'Synthetic PO, cluster cluster-22, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0152
+  vendor_gstin: 09ICAZK1235B0ZZ
+  grand_total: '774000.00'
+expected_lines:
+- qty: '8'
+  rate: '18000.00'
+  total: '144000.00'
+  hsn: '8517'
+- qty: '14'
+  rate: '45000.00'
+  total: '630000.00'
+  hsn: '8471'

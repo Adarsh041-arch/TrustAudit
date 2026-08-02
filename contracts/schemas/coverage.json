@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/coverage.json",
+  "title": "DocumentCoverage",
+  "description": "Records which pages of a document were examined during audit.",
+  "type": "object",
+  "properties": {
+    "pages_total": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of pages in the document"
+    },
+    "pages_examined": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of pages actually examined"
+    },
+    "pages_unreadable": {
+      "type": "array",
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "description": "Page numbers that could not be read"
+    },
+    "coverage_complete": {
+      "type": "boolean",
+      "description": "True only if pages_examined == pages_total and pages_unreadable is empty"
+    }
+  },
+  "required": [
+    "pages_total",
+    "pages_examined",
+    "pages_unreadable",
+    "coverage_complete"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "coverage_complete": {
+            "const": true
+          }
+        },
+        "required": ["coverage_complete"]
+      },
+      "then": {
+        "properties": {
+          "pages_examined": {
+            "const": {
+              "$data": "1/pages_total"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

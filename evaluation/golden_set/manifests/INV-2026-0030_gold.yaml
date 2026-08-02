@@ -1,0 +1,35 @@
+generator_version: 2.0.0
+document_id: INV-2026-0030
+doc_type: invoice
+cluster_id: cluster-19
+source: evaluation/golden_set/docs/INV-2026-0030.pdf
+description: 'Synthetic invoice, cluster cluster-19, defects: [''missing_bank'', ''grand_total_error'']'
+defects:
+- missing_bank
+- grand_total_error
+expected_findings:
+- check_id: CHK-REF-BANK-001
+  expected_status: FAIL
+  defect: missing_bank
+- check_id: CHK-ARITH-GRAND-001
+  expected_status: FAIL
+  defect: grand_total_error
+expected_fields:
+  document_id: INV-2026-0030
+  vendor_gstin: 23QAZWL1748K9Z9
+  subtotal: '458000.00'
+  grand_total: '541440.00'
+  po_reference: PO-2026-1968
+expected_lines:
+- qty: '11'
+  rate: '11000.00'
+  total: '121000.00'
+  hsn: '8528'
+- qty: '13'
+  rate: '13500.00'
+  total: '175500.00'
+  hsn: '8472'
+- qty: '17'
+  rate: '9500.00'
+  total: '161500.00'
+  hsn: '8418'

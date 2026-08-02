@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/check_catalog.json",
+  "title": "CheckCatalog",
+  "description": "Versioned catalog of all audit checks.",
+  "type": "object",
+  "properties": {
+    "catalog_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "checks": {
+      "type": "array",
+      "items": {
+        "$ref": "check_catalog_entry.json"
+      },
+      "minItems": 1
+    }
+  },
+  "required": ["catalog_version", "created_at", "checks"]
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/provenance.json",
+  "title": "ProvenancedValue",
+  "description": "An extracted field value with spatial and confidence provenance.",
+  "type": "object",
+  "properties": {
+    "value": {
+      "type": "string",
+      "description": "Normalized value as string (monetary values are strings, never JSON numbers)"
+    },
+    "raw": {
+      "type": "string",
+      "description": "Raw text as it appears on the document"
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "description": "ISO 4217 currency code, present only for monetary values"
+    },
+    "bbox": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "number"
+      },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Bounding box [x1, y1, x2, y2] on the page, null if not locatable"
+    },
+    "page": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "1-indexed page number"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Calibrated confidence score"
+    }
+  },
+  "required": ["value", "raw", "bbox", "page", "confidence"]
+}

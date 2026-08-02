@@ -1,0 +1,44 @@
+generator_version: 2.0.0
+document_id: INV-2026-0024
+doc_type: invoice
+cluster_id: cluster-01
+source: evaluation/golden_set/docs/INV-2026-0024.pdf
+description: 'Synthetic invoice, cluster cluster-01, defects: [''missing_po_ref'',
+  ''subtotal_error'']'
+defects:
+- missing_po_ref
+- subtotal_error
+expected_findings:
+- check_id: CHK-REF-PO-001
+  expected_status: FAIL
+  defect: missing_po_ref
+- check_id: CHK-ARITH-SUBTOTAL-001
+  expected_status: FAIL
+  defect: subtotal_error
+expected_fields:
+  document_id: INV-2026-0024
+  vendor_gstin: 27CXADW9072T6Z5
+  subtotal: '564300.00'
+  grand_total: '665874.00'
+  po_reference: null
+expected_lines:
+- qty: '8'
+  rate: '6500.00'
+  total: '52000.00'
+  hsn: '8504'
+- qty: '10'
+  rate: '35000.00'
+  total: '350000.00'
+  hsn: '9403'
+- qty: '8'
+  rate: '9500.00'
+  total: '76000.00'
+  hsn: '8418'
+- qty: '3'
+  rate: '25000.00'
+  total: '75000.00'
+  hsn: '8443'
+- qty: '14'
+  rate: '800.00'
+  total: '11200.00'
+  hsn: '8471'

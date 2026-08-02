@@ -1,0 +1,11 @@
+generator_version: 2.0.0
+document_id: GRN-2026-0199
+doc_type: goods_receipt_note
+cluster_id: cluster-11
+source: evaluation/golden_set/docs/GRN-2026-0199.pdf
+description: Synthetic GRN, cluster cluster-11, clean
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: GRN-2026-0199
+expected_lines: []

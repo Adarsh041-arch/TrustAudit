@@ -1,0 +1,29 @@
+generator_version: 2.0.0
+document_id: PO-2026-0149
+doc_type: purchase_order
+cluster_id: cluster-09
+source: evaluation/golden_set/docs/PO-2026-0149.pdf
+description: 'Synthetic PO, cluster cluster-09, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0149
+  vendor_gstin: 09PDCVU3675M9ZQ
+  grand_total: '408100.00'
+expected_lines:
+- qty: '13'
+  rate: '200.00'
+  total: '2600.00'
+  hsn: '9608'
+- qty: '3'
+  rate: '9500.00'
+  total: '28500.00'
+  hsn: '8418'
+- qty: '11'
+  rate: '12000.00'
+  total: '132000.00'
+  hsn: '9403'
+- qty: '7'
+  rate: '35000.00'
+  total: '245000.00'
+  hsn: '9403'

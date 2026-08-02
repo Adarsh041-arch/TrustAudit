@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: audit_v2
+      POSTGRES_USER: audit
+      POSTGRES_PASSWORD: audit_dev_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U audit -d audit_v2"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Temporal: auto-setup requires different config for v1.31+. Uncomment after fixing.
+  # See .infra/temporal.yaml for persistence config and AGENTS.md for setup steps.
+  #temporal:
+  #  image: temporalio/server:latest
+  #  ports:
+  #    - "7233:7233"
+  #    - "8233:8233"
+  #  volumes:
+  #    - ./.infra/temporal.yaml:/etc/temporal/config/docker.yaml
+  #  depends_on:
+  #    postgres:
+  #      condition: service_healthy
+
+volumes:
+  pgdata:
+  miniodata:

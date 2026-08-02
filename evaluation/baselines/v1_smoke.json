@@ -1,0 +1,48 @@
+{
+  "version": "1",
+  "measured_at": "2026-07-27T14:17:31Z",
+  "measurement_mode": "real_model",
+  "provider": "nvidia",
+  "model": "google/diffusiongemma-26b-a4b-it",
+  "corpus_note": "synthetic golden set (evaluation/golden_set), no real scanned documents",
+  "documents_count": 1,
+  "documents_successful": 1,
+  "average_latency_seconds": 29.094,
+  "metrics": {
+    "overall_precision": 0.0,
+    "overall_recall": 1.0,
+    "overall_f1": 0.0,
+    "estimated_cost_per_doc_inr": 14.547
+  },
+  "per_document": [
+    {
+      "document": "DC-2026-0171.pdf",
+      "document_id_gold": "DC-2026-0171",
+      "doc_type": "delivery_challan",
+      "elapsed_seconds": 29.094,
+      "pages_processed": 1,
+      "expected_fail_check_ids": [],
+      "reported_fail_check_ids": [
+        "CHK-ARITH-SUBTOTAL-001",
+        "CHK-ARITH-TAX-001",
+        "CHK-FORMAT-WORDS-001",
+        "CHK-REF-GST-001",
+        "R010"
+      ],
+      "findings_count": 5,
+      "passed": false,
+      "score": 62.5,
+      "precision": 0.0,
+      "recall": 1.0,
+      "f1": 0.0,
+      "tp": 0,
+      "fp": 5,
+      "fn": 0,
+      "estimated_cost_inr": 14.547,
+      "error": null
+    }
+  ],
+  "golden_set_source": "evaluation/golden_set/manifests",
+  "gate": "M0 - Phase 0 V1 baseline (precision/recall vs. expected_findings)",
+  "notes": "V1 delegates arithmetic to the LLM (B1 defect) and uses float math (B3 defect). This baseline establishes the floor that V2 must beat."
+}

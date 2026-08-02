@@ -1,0 +1,44 @@
+[importlinter]
+root_packages =
+    audit_v2
+    app
+    backend
+include_external_packages = True
+
+# PHASES_V2 §1: V1 and V2 must not couple. Copy code across deliberately.
+[importlinter:contract:v2-independent-of-v1]
+name = audit_v2 must not import V1 (app/backend)
+type = forbidden
+source_modules =
+    audit_v2
+forbidden_modules =
+    app
+    backend
+
+[importlinter:contract:v1-independent-of-v2]
+name = V1 (app/backend) must not import audit_v2
+type = forbidden
+source_modules =
+    app
+    backend
+forbidden_modules =
+    audit_v2
+
+# PHASES_V2 §3.1: the domain layer is pure. Validators reason about data; they
+# never fetch it. This is the structural guarantee against defect B1.
+[importlinter:contract:domain-is-pure]
+name = Domain layer makes no network or model calls
+type = forbidden
+source_modules =
+    audit_v2.domain
+forbidden_modules =
+    audit_v2.gateway
+    audit_v2.ingestion
+    audit_v2.orchestration
+    audit_v2.persistence
+    httpx
+    requests
+    urllib3
+    boto3
+    psycopg
+    google

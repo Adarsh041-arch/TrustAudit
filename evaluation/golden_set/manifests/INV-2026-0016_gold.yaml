@@ -1,0 +1,42 @@
+generator_version: 2.0.0
+document_id: INV-2026-0016
+doc_type: invoice
+cluster_id: cluster-18
+source: evaluation/golden_set/docs/INV-2026-0016.pdf
+description: 'Synthetic invoice, cluster cluster-18, defects: [''bad_gstin'']'
+defects:
+- bad_gstin
+expected_findings:
+- check_id: CHK-REF-GST-001
+  expected_status: FAIL
+  defect: bad_gstin
+- check_id: CHK-FORMAT-MANDATORY-001
+  expected_status: FAIL
+  defect: bad_gstin
+expected_fields:
+  document_id: INV-2026-0016
+  vendor_gstin: null
+  subtotal: '854600.00'
+  grand_total: '1008428.00'
+  po_reference: PO-2026-1891
+expected_lines:
+- qty: '14'
+  rate: '4200.00'
+  total: '58800.00'
+  hsn: '8544'
+- qty: '16'
+  rate: '800.00'
+  total: '12800.00'
+  hsn: '8471'
+- qty: '4'
+  rate: '38000.00'
+  total: '152000.00'
+  hsn: '8415'
+- qty: '14'
+  rate: '6500.00'
+  total: '91000.00'
+  hsn: '8504'
+- qty: '12'
+  rate: '45000.00'
+  total: '540000.00'
+  hsn: '8471'

@@ -1,0 +1,36 @@
+generator_version: 2.0.0
+document_id: PO-2026-0147
+doc_type: purchase_order
+cluster_id: cluster-14
+source: evaluation/golden_set/docs/PO-2026-0147.pdf
+description: 'Synthetic PO, cluster cluster-14, defects: [''line_item_error'']'
+defects:
+- line_item_error
+expected_findings:
+- check_id: CHK-ARITH-LINE-001
+  expected_status: FAIL
+  defect: line_item_error
+- check_id: CHK-ARITH-ROUNDING-001
+  expected_status: FAIL
+  defect: line_item_error
+expected_fields:
+  document_id: PO-2026-0147
+  vendor_gstin: 08CBLEP5866J5ZC
+  grand_total: '320000.00'
+expected_lines:
+- qty: '15'
+  rate: '800.00'
+  total: '12000.00'
+  hsn: '8471'
+- qty: '4'
+  rate: '7500.00'
+  total: '30000.00'
+  hsn: '8523'
+- qty: '15'
+  rate: '8500.00'
+  total: '127500.00'
+  hsn: '9401'
+- qty: '10'
+  rate: '15000.00'
+  total: '150500.00'
+  hsn: '8543'

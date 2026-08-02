@@ -1,0 +1,29 @@
+generator_version: 2.0.0
+document_id: PO-2026-0161
+doc_type: purchase_order
+cluster_id: cluster-03
+source: evaluation/golden_set/docs/PO-2026-0161.pdf
+description: 'Synthetic PO, cluster cluster-03, defects: none'
+defects: []
+expected_findings: []
+expected_fields:
+  document_id: PO-2026-0161
+  vendor_gstin: 24JSGAQ0582T1Z7
+  grand_total: '676500.00'
+expected_lines:
+- qty: '6'
+  rate: '8500.00'
+  total: '51000.00'
+  hsn: '9401'
+- qty: '9'
+  rate: '52000.00'
+  total: '468000.00'
+  hsn: '8528'
+- qty: '10'
+  rate: '12000.00'
+  total: '120000.00'
+  hsn: '9403'
+- qty: '15'
+  rate: '2500.00'
+  total: '37500.00'
+  hsn: '8471'

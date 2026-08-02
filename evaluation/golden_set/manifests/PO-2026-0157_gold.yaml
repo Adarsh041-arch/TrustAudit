@@ -1,0 +1,32 @@
+generator_version: 2.0.0
+document_id: PO-2026-0157
+doc_type: purchase_order
+cluster_id: cluster-08
+source: evaluation/golden_set/docs/PO-2026-0157.pdf
+description: 'Synthetic PO, cluster cluster-08, defects: [''line_item_error'']'
+defects:
+- line_item_error
+expected_findings:
+- check_id: CHK-ARITH-LINE-001
+  expected_status: FAIL
+  defect: line_item_error
+- check_id: CHK-ARITH-ROUNDING-001
+  expected_status: FAIL
+  defect: line_item_error
+expected_fields:
+  document_id: PO-2026-0157
+  vendor_gstin: 20ORHTA4107I2ZH
+  grand_total: '1047600.00'
+expected_lines:
+- qty: '19'
+  rate: '45000.00'
+  total: '855000.00'
+  hsn: '8471'
+- qty: '5'
+  rate: '2500.00'
+  total: '12600.00'
+  hsn: '8471'
+- qty: '15'
+  rate: '12000.00'
+  total: '180000.00'
+  hsn: '9403'
