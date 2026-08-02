@@ -4,13 +4,9 @@ from pathlib import Path
 import fitz
 import requests
 
-API_KEY = os.getenv("NVIDIA_API_KEY")
-if not API_KEY:
-    print("Set NVIDIA_API_KEY environment variable first.")
-    exit(1)
-
 INVOKE_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 MODEL = "google/diffusiongemma-26b-a4b-it"
+
 
 SAMPLE_DIR = r"C:\Users\adars\OneDrive\Desktop\AUDIT_AGENT\sample_docs"
 CHECKLIST_PATH = r"C:\Users\adars\OneDrive\Desktop\AUDIT_AGENT\checklist.md"

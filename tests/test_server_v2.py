@@ -1,10 +1,25 @@
 """Contract and integration tests for FastAPI server_v2.py on port :8100."""
 
 import io
+from io import BytesIO
+from pathlib import Path
 from fastapi.testclient import TestClient
-from backend.server_v2 import app, DOCUMENTS_STORE, FINDINGS_STORE, AUDIT_LOG
+from audit_v2.server import app, DOCUMENTS_STORE, FINDINGS_STORE, AUDIT_LOG
 
 client = TestClient(app)
+
+import fitz
+
+def _make_sample_pdf() -> bytes:
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 50), "INVOICE #INV-2026-0715\nVendor: NewTech Solutions\nTotal: $1,250.00\nDate: 2026-07-15\nItem: Server License Qty: 1 Price: $1250.00")
+    pdf_bytes = doc.tobytes()
+    doc.close()
+    return pdf_bytes
+
+MINIMAL_PDF = _make_sample_pdf()
+
 
 
 class TestServerV2:
@@ -17,12 +32,13 @@ class TestServerV2:
         assert body["audit_log_valid"] is True
 
     def test_upload_document_text_pdf(self):
-        with open("sample_docs/INV-2026-0715_NewTech_Solutions.pdf", "rb") as f:
-            pdf_bytes = f.read()
+        sample = Path(__file__).parent.parent / "sample_docs" / "INV-2026-0715_NewTech_Solutions.pdf"
+        pdf_bytes = sample.read_bytes() if sample.exists() else MINIMAL_PDF
         res = client.post(
             "/api/v2/audit/upload",
             files=[("files", ("invoice.pdf", pdf_bytes, "application/pdf"))],
         )
+
         assert res.status_code == 200
         body = res.json()
         assert "documents" in body
@@ -30,8 +46,8 @@ class TestServerV2:
         assert "is_vlm_fallback" in body
 
     def test_upload_multi_document_batch(self):
-        with open("sample_docs/INV-2026-0715_NewTech_Solutions.pdf", "rb") as f:
-            pdf_bytes = f.read()
+        sample = Path(__file__).parent.parent / "sample_docs" / "INV-2026-0715_NewTech_Solutions.pdf"
+        pdf_bytes = sample.read_bytes() if sample.exists() else MINIMAL_PDF
         res = client.post(
             "/api/v2/audit/upload",
             files=[
@@ -43,8 +59,6 @@ class TestServerV2:
         body = res.json()
         assert body["count"] == 2
         assert len(body["documents"]) == 2
-
-
 
     def test_audit_log_endpoint(self):
         res = client.get("/api/v2/audit/log")
@@ -66,10 +80,9 @@ class TestServerV2:
         assert "pending_items" in body
 
     def test_upload_response_has_enriched_document_results(self):
-        from io import BytesIO
+        sample = Path(__file__).parent.parent / "sample_docs" / "INV-2026-0715_NewTech_Solutions.pdf"
+        pdf_bytes = sample.read_bytes() if sample.exists() else MINIMAL_PDF
 
-        with open("sample_docs/INV-2026-0715_NewTech_Solutions.pdf", "rb") as f:
-            pdf_bytes = f.read()
 
         with TestClient(app) as client:
             res = client.post(

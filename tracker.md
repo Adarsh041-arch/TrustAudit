@@ -11,7 +11,22 @@
 
 ## Build Log
 
-### 2026-08-02 (session 5g) — V1 Feature Parity
+### 2026-08-02 (session 5h) — Strict V1 / V2 Architectural Separation
+
+Enforced 100% boundary isolation per `AGENTS.md` and `.importlinter`:
+
+- **Backend Separation**:
+  - Moved V2 backend server to `audit_v2/server.py` (Port `:8100`), deleting `backend/server_v2.py`.
+  - Maintained `backend/server.py` as pure frozen V1 legacy backend (Port `:8000`).
+  - Verified import boundaries with `lint-imports`: 3 kept, 0 broken (`audit_v2` has zero dependencies on `app`/`backend`).
+
+- **Frontend Separation**:
+  - Restored original V1 `App.tsx` (Port `:8000` with 7 tabs, local folder path input, processing animation, KPI cards, Recharts, document selector, failed rules accordion, Random Forest ML, RAG policy center, report downloads, settings slider, evaluation grid, copilot chat).
+  - Fixed RAG embedding model deprecation (`models/text-embedding-004`).
+
+- **Tests**:
+  - Updated `tests/test_server_v2.py` to import from `audit_v2.server` (all 9 API integration tests passing).
+
 
 **`audit_v2/analytics/`** — three pure-Python modules (no network, no model calls):
 - `risk_scorer.py` — `compute_document_score` (severity-weighted), `risk_level_for`, `risk_explanation_for`

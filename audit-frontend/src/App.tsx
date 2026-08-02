@@ -5,7 +5,6 @@ import {
   CheckCircle,
   AlertTriangle,
   AlertOctagon,
-  HelpCircle,
   Download,
   RefreshCw,
   BarChart2,
@@ -15,12 +14,12 @@ import {
   User,
   Bot,
   Layers,
-  ArrowRight,
   TrendingUp,
   Brain,
   Activity,
   FileSpreadsheet
 } from 'lucide-react'
+
 
 import {
   ResponsiveContainer,
@@ -465,9 +464,9 @@ function App() {
                   </thead>
                   <tbody className="divide-y divide-border/40 text-[13px]">
                     {data.report.document_results.map((doc, idx) => {
-                      const isHigh = doc.risk_level === 'High Risk'
                       return (
                         <tr key={idx} className="hover:bg-ink-50/35 transition-colors cursor-pointer" onClick={() => {
+
                           setSelectedDocIndex(idx)
                           setActiveTab('results')
                         }}>
@@ -869,10 +868,11 @@ function App() {
                           cx="50%"
                           cy="50%"
                           outerRadius={80}
-                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+                          label={({ name, percent }: { name?: string; percent?: number }) => `${name || ''} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                           dataKey="value"
                         >
-                          {charts.document_types.map((entry: any, index: number) => (
+                          {charts.document_types.map((_: any, index: number) => (
+
                             <Cell key={`cell-${index}`} fill={['#0F6E56', '#185FA5', '#D97706', '#993C1D', '#6B7280'][index % 5]} />
                           ))}
                         </Pie>
