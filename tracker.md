@@ -3,13 +3,37 @@
 **Project:** Multi-Model Document Audit Agent (V2)
 **Plan source:** `PHASES_V2.md`
 **Started:** 2026-07-25
-**Current build:** 2026-07-27
-**Active milestones:** M0 Foundations ✅ · M1 Thin Slice ✅ · M2 Hardening ✅
-**Approach:** Vertical Slice (per `AGENTS.md` §10, M1 is deliberately narrow and first)
+**Current build:** 2026-08-02
+**Active milestones:** M0 Foundations ✅ | M1 Thin Slice ✅ | M2 Hardening ✅.
+**Approach:** Vertical Slice (per `AGENTS.md` A10, M1 is deliberately narrow and first)
 
 ---
 
 ## Build Log
+
+### 2026-08-02 (session 5f) — Dual Extraction + Text-Doc Wired into API & UI
+
+- **`backend/server_v2.py`** — upload endpoint now runs the classifier (`classify_document_from_data`) before `extract_document`, so contracts/letters take the VLM-text path and tabular docs the dual path. Responses expose `extraction_mode` (`dual`/`regex`/`vlm`/`vlm_text`), `extraction_results` per file (disagreement count/fields, narrative flag), and batch-level `requires_human_review`. Each extraction disagreement enqueues a `NEEDS_REVIEW` finding (synthetic `CHK-EXTRACT-DISAGREE-001`, deterministic fingerprint) into the existing review queue and logs an `extraction_disagreement` audit entry.
+- **`audit-frontend/`** — `VlmStatusBadge` reworked to mode-driven (violet `Dual Extraction (Regex + VLM)`, blue `VLM Vision AI`/`VLM Text Extraction`, teal `Deterministic Text Layer`); `api_v2.ts` types extended; App shows an amber human-review banner, per-field regex-vs-VLM disagreement chips, and the VLM narrative report for contracts/letters; upload copy updated.
+- **Verification**: `tests/test_server_v2.py` 6 passed; `ruff check backend/server_v2.py` clean (B008 baseline only); `tsc --noEmit` clean.
+
+
+### 2026-08-02 (session 5e) — Dual Parallel Extraction (regex ‖ VLM) + Text-Doc VLM Extraction
+
+Per spec: invoices/bills run two parallel extraction methods that share
+insights; free-text documents get VLM-only report extraction; all documents
+feed a common cross-doc state.
+
+- **`audit_v2/extraction/merge.py`** — Pure `merge_extractions(regex_doc, vlm_doc)`. Field-level reconciliation (header, line items keyed by number with fuzzy description fallback, tax lines): agreement boosts confidence via existing `compute_field_confidence`; disagreement keeps the deterministic regex value, penalizes confidence, and records `field_name -> "regex vs vlm"` on `ExtractedDocument.extraction_disagreements` → routes to human review via the existing Adjudicator.
+- **`audit_v2/extraction/text_doc_extractor.py`** — `VlmTextExtractor` for free-text docs: maps party/date/value/ref into the standard `DocumentHeader` slots (so existing validators run) plus a `narrative_report`. Page rendering shared via module-level `render_pages_to_jpeg` in `vlm_extractor.py`.
+- **`DocumentType`** gains `contract` + `letter` (`TEXT_DOC_TYPES`); `ExtractedDocument` gains `narrative_report` + `extraction_disagreements`.
+- **Classifier** — regex signatures for contract/letter (Agreement, Contract, NDA, Letter, Memo, Notice, …).
+- **`orchestration/activities.py`** — `extract_document` branches: tabular → `_extract_dual` (regex + VLM via `ThreadPoolExecutor`, then merge); text → `extract_text_with_vlm`. Exposed `extract_with_regex`/`extract_with_vlm` for Temporal.
+- **Temporal** — `temporal_workflow.py` now classifies, then fans out `regex_extract_activity ‖ vlm_extract_activity` via `asyncio.gather` + `merge_extractions_activity` (text docs → `vlm_text_extract_activity`). New activities registered in `worker.py` and both test workers.
+- **Adjudication** — disagreements in the merged document trigger `Adjudicator` (deterministic verdicts immutable); `requires_human_review` surfaced on both workflow outputs.
+- **Catalog/routing** — `CHK-FORMAT-MANDATORY-001` extended to contract/letter (mandatory-field map per type), `CHK-TEMP-EXPIRY-001` to contract; `ROUTE-CONT-001`/`ROUTE-LET-001` added; `document.json` schema enum widened.
+- **Tests**: `tests/test_merge.py` (18), `tests/test_text_doc_extractor.py` (5); suite **397 passed, 8 skipped**. `mypy --strict audit_v2/domain/` clean; ruff clean on touched files (repo-wide ruff debt is pre-existing `datetime.now()` DTZ warnings, baseline 62).
+
 
 ### 2026-08-02 (session 5d) — Audit V2 Frontend UI & FastAPI Server (:8100) Shipped
 

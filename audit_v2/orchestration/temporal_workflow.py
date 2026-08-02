@@ -8,18 +8,23 @@ Workflow code is deterministic — no IO, no random, no datetime.now().
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, VersioningBehavior
 
-from audit_v2.domain.models import FailureClass
+from audit_v2.domain.models import TEXT_DOC_TYPES, FailureClass
 from audit_v2.orchestration.activities_temporal import (
+    ClassifyInput,
+    ClassifyResult,
     ExtractInput,
     ExtractResult,
     FetchDocumentInput,
     FetchDocumentResult,
+    MergeInput,
+    MergeResult,
     PersistResultInput,
     ProcessPdfInput,
     ProcessPdfResult,
@@ -29,13 +34,17 @@ from audit_v2.orchestration.activities_temporal import (
     ValidateAndEmitResult,
     ValidateInput,
     ValidateResult,
-    extract_activity,
+    classify_activity,
     fetch_document,
+    merge_extractions_activity,
     persist_results_activity,
     process_pdf_activity,
+    regex_extract_activity,
     security_scan_activity,
     validate_and_dedup,
     validate_and_emit_activity,
+    vlm_extract_activity,
+    vlm_text_extract_activity,
 )
 
 with workflow.unsafe.imports_passed_through():
@@ -65,6 +74,7 @@ class AuditWorkflowOutput:
     error: str | None = None
     routing_rule_id: str | None = None
     failure_class: FailureClass | None = None
+    requires_human_review: bool = False
 
 
 # §3.3 retry mapping. Temporal applies exponential backoff (server adds
@@ -157,18 +167,84 @@ class AuditDocumentWorkflow:
                     failure_class=FailureClass.POISON,
                 )
 
-        # 4. Extract + classify + normalize document
-        extract_result: ExtractResult = await workflow.execute_activity(
-            extract_activity,
-            ExtractInput(
-                document_id=inp.document_id,
-                tenant_id=inp.tenant_id,
-                data=inp.data,
-                mime_type=inp.mime_type,
-            ),
-            retry_policy=_RETRY_POISON,
+        # 4. Classify, then extract:
+        #    - text documents (contract/letter): VLM-only (report + key fields)
+        #    - tabular documents: regex and VLM passes in parallel, then merge
+        classify_result: ClassifyResult = await workflow.execute_activity(
+            classify_activity,
+            ClassifyInput(data=inp.data, mime_type=inp.mime_type),
+            retry_policy=_RETRY_NONE,
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
         )
+        if classify_result.error:
+            return AuditWorkflowOutput(
+                document_id=inp.document_id,
+                finding_ids=[],
+                status="FAILED",
+                error=classify_result.error,
+                failure_class=FailureClass.LOGIC,
+            )
+
+        text_doc = classify_result.doc_type in TEXT_DOC_TYPES
+        if text_doc:
+            extract_result: ExtractResult = await workflow.execute_activity(
+                vlm_text_extract_activity,
+                ExtractInput(
+                    document_id=inp.document_id,
+                    tenant_id=inp.tenant_id,
+                    data=inp.data,
+                    mime_type=inp.mime_type,
+                ),
+                retry_policy=_RETRY_POISON,
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            )
+        else:
+            regex_future = workflow.execute_activity(
+                regex_extract_activity,
+                ExtractInput(
+                    document_id=inp.document_id,
+                    tenant_id=inp.tenant_id,
+                    data=inp.data,
+                    mime_type=inp.mime_type,
+                ),
+                retry_policy=_RETRY_POISON,
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            )
+            vlm_future = workflow.execute_activity(
+                vlm_extract_activity,
+                ExtractInput(
+                    document_id=inp.document_id,
+                    tenant_id=inp.tenant_id,
+                    data=inp.data,
+                    mime_type=inp.mime_type,
+                ),
+                retry_policy=_RETRY_POISON,
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            )
+            regex_result, vlm_result = await asyncio.gather(regex_future, vlm_future)
+            merge_result: MergeResult = await workflow.execute_activity(
+                merge_extractions_activity,
+                MergeInput(
+                    document_id=inp.document_id,
+                    regex_document=regex_result.document,
+                    vlm_document=vlm_result.document,
+                ),
+                retry_policy=_RETRY_NONE,
+                start_to_close_timeout=_ACTIVITY_TIMEOUT,
+            )
+            if merge_result.error:
+                return AuditWorkflowOutput(
+                    document_id=inp.document_id,
+                    finding_ids=[],
+                    status="FAILED",
+                    error=merge_result.error,
+                    failure_class=FailureClass.POISON,
+                )
+            extract_result = ExtractResult(
+                document=merge_result.document,
+                raw_text=regex_result.raw_text or vlm_result.raw_text,
+            )
+
         if extract_result.error or extract_result.document is None:
             return AuditWorkflowOutput(
                 document_id=inp.document_id,
@@ -238,4 +314,5 @@ class AuditDocumentWorkflow:
             findings=emit_result.findings,
             status=final_status,
             routing_rule_id=emit_result.routing_rule_id,
+            requires_human_review=emit_result.requires_human_review,
         )

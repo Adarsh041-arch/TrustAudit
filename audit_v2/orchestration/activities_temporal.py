@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 
 from temporalio import activity
 
+from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
 from audit_v2.domain.models import (
     DocumentStatus,
     ExtractedDocument,
@@ -21,11 +22,15 @@ from audit_v2.domain.models import (
     Finding,
 )
 from audit_v2.extraction.classifier import classify_document_from_data
+from audit_v2.extraction.merge import merge_extractions
 from audit_v2.ingestion.dedup import compute_content_hash
 from audit_v2.ingestion.document_store import DocumentStore
 from audit_v2.orchestration.activities import (
     check_dedup,
     extract_document,
+    extract_text_with_vlm,
+    extract_with_regex,
+    extract_with_vlm,
     normalize_document,
     process_pdf_pages,
     transition_document,
@@ -203,6 +208,108 @@ async def extract_activity(input: ExtractInput) -> ExtractResult:
 
 
 @dataclass
+class ClassifyInput:
+    data: bytes
+    mime_type: str
+
+
+@dataclass
+class ClassifyResult:
+    doc_type: str = "invoice"
+    confidence: float = 0.0
+    error: str | None = None
+
+
+@activity.defn
+async def classify_activity(input: ClassifyInput) -> ClassifyResult:
+    try:
+        detected_type, confidence = classify_document_from_data(
+            input.data, input.mime_type,
+        )
+        return ClassifyResult(doc_type=detected_type.value, confidence=confidence)
+    except Exception as e:
+        logger.exception("classify_activity failed")
+        return ClassifyResult(error=str(e))
+
+
+@activity.defn
+async def regex_extract_activity(input: ExtractInput) -> ExtractResult:
+    """Regex-only extraction — deterministic half of the dual pass."""
+    detected_type, _ = classify_document_from_data(input.data, input.mime_type)
+    extraction = extract_with_regex(
+        input.data, input.mime_type, input.document_id, input.tenant_id,
+        doc_type=detected_type,
+    )
+    if extraction.error is not None or extraction.document is None:
+        return ExtractResult(error=extraction.error or "Regex extraction returned None")
+    return ExtractResult(
+        document=normalize_document(extraction.document),
+        raw_text=extraction.text,
+    )
+
+
+@activity.defn
+async def vlm_extract_activity(input: ExtractInput) -> ExtractResult:
+    """VLM-only extraction — model half of the dual pass."""
+    extraction = extract_with_vlm(
+        input.data, input.mime_type, input.document_id, input.tenant_id,
+    )
+    if extraction.error is not None or extraction.document is None:
+        return ExtractResult(error=extraction.error or "VLM extraction returned None")
+    return ExtractResult(
+        document=normalize_document(extraction.document),
+        raw_text=extraction.text,
+    )
+
+
+@activity.defn
+async def vlm_text_extract_activity(input: ExtractInput) -> ExtractResult:
+    """VLM-only extraction for free-text documents (contract/letter)."""
+    detected_type, _ = classify_document_from_data(input.data, input.mime_type)
+    extraction = extract_text_with_vlm(
+        input.data, input.mime_type, input.document_id, input.tenant_id,
+        doc_type=detected_type,
+    )
+    if extraction.error is not None or extraction.document is None:
+        return ExtractResult(error=extraction.error or "VLM text extraction returned None")
+    return ExtractResult(
+        document=normalize_document(extraction.document),
+        raw_text=extraction.text,
+    )
+
+
+@dataclass
+class MergeInput:
+    document_id: str
+    regex_document: ExtractedDocument | None
+    vlm_document: ExtractedDocument | None
+
+
+@dataclass
+class MergeResult:
+    document: ExtractedDocument | None = None
+    error: str | None = None
+
+
+@activity.defn
+async def merge_extractions_activity(input: MergeInput) -> MergeResult:
+    """Merge the two parallel extraction passes field-by-field."""
+    if input.regex_document is None and input.vlm_document is None:
+        return MergeResult(error="Both extraction passes returned nothing")
+    if input.regex_document is None:
+        return MergeResult(document=input.vlm_document)
+    if input.vlm_document is None:
+        return MergeResult(document=input.regex_document)
+    merged = merge_extractions(input.regex_document, input.vlm_document).merged
+    if merged.extraction_disagreements:
+        logger.info(
+            "Dual extraction for %s: %d disagreed fields → human review",
+            input.document_id, len(merged.extraction_disagreements),
+        )
+    return MergeResult(document=merged)
+
+
+@dataclass
 class SecurityScanInput:
     document_id: str
     raw_text: str
@@ -242,6 +349,7 @@ class ValidateAndEmitResult:
     findings: list[Finding] = field(default_factory=list)
     routing_rule_id: str | None = None
     coverage_complete: bool = False
+    requires_human_review: bool = False
     error: str | None = None
 
 
@@ -262,10 +370,20 @@ async def validate_and_emit_activity(
             prompt_version=input.prompt_version,
             model_version=input.model_version,
         )
+        requires_human_review = bool(input.document.extraction_disagreements)
+        if requires_human_review:
+            adjudication = Adjudicator().adjudicate(AdjudicationRequest(
+                document_id=input.document.document_id,
+                tenant_id=input.document.tenant_id,
+                deterministic_findings=findings,
+                extraction_disagreements=input.document.extraction_disagreements,
+            ))
+            requires_human_review = adjudication.requires_human_review
         return ValidateAndEmitResult(
             findings=findings,
             routing_rule_id=routing.rule_id,
             coverage_complete=input.document.coverage.coverage_complete,
+            requires_human_review=requires_human_review,
         )
     except Exception as e:
         logger.exception("validate_and_emit failed")

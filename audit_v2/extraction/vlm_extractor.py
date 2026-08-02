@@ -93,27 +93,28 @@ def _pv(val: Any, page: int = 1, confidence: float = 0.85) -> ProvenancedValue |
     )
 
 
+def render_pages_to_jpeg(data: bytes, mime_type: str) -> list[bytes]:
+    """Render PDF pages or raw image bytes to a list of JPEG byte buffers."""
+    if mime_type in ("image/jpeg", "image/png", "image/webp"):
+        return [data]
+
+    images: list[bytes] = []
+    doc = fitz.open(stream=data, filetype="pdf")
+    try:
+        for page in doc:
+            pix = page.get_pixmap(dpi=200)
+            images.append(pix.tobytes("jpeg"))
+    finally:
+        doc.close()
+    return images
+
+
 class VlmExtractor(BaseExtractor):
     def __init__(self, gateway: NvidiaGateway | None = None) -> None:
         self.gateway = gateway or NvidiaGateway()
 
-    def render_pages_to_jpeg(self, data: bytes, mime_type: str) -> list[bytes]:
-        """Render PDF pages or raw image bytes to a list of JPEG byte buffers."""
-        if mime_type in ("image/jpeg", "image/png", "image/webp"):
-            return [data]
-
-        images: list[bytes] = []
-        doc = fitz.open(stream=data, filetype="pdf")
-        try:
-            for page in doc:
-                pix = page.get_pixmap(dpi=200)
-                images.append(pix.tobytes("jpeg"))
-        finally:
-            doc.close()
-        return images
-
     def extract(self, data: bytes, mime_type: str) -> ExtractedDocument:
-        images = self.render_pages_to_jpeg(data, mime_type)
+        images = render_pages_to_jpeg(data, mime_type)
         if not images:
             raise ValueError("No renderable pages found in document")
 

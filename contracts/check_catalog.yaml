@@ -196,7 +196,7 @@ checks:
   - check_id: CHK-TEMP-EXPIRY-001
     title: Document has not passed its expiry date
     category: temporal
-    applies_to: [invoice, purchase_order]
+    applies_to: [invoice, purchase_order, contract]
     severity: medium
     determinism: deterministic
     inputs: [expiry_date, current_date]
@@ -253,7 +253,7 @@ checks:
   - check_id: CHK-FORMAT-MANDATORY-001
     title: All mandatory fields are present
     category: format_completeness
-    applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
+    applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note, contract, letter]
     severity: critical
     determinism: deterministic
     inputs: [document_fields]

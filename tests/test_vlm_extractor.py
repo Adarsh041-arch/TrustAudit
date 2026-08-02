@@ -68,7 +68,7 @@ class TestVlmExtractor:
         assert doc.coverage.pages_examined == 2
         assert doc.coverage.coverage_complete is True
 
-    def test_extract_mocked_gateway(self):
+    def test_extract_mocked_gateway(self, monkeypatch):
         mock_gw = MagicMock()
         mock_gw.extract.return_value = ModelResponse(
             content='{"header": {"doc_type": "purchase_order", "grand_total": "500.00"}}',
@@ -77,7 +77,10 @@ class TestVlmExtractor:
         ext = VlmExtractor(gateway=mock_gw)
 
         # Mock page rendering
-        ext.render_pages_to_jpeg = MagicMock(return_value=[b"fake_jpeg"])
+        monkeypatch.setattr(
+            "audit_v2.extraction.vlm_extractor.render_pages_to_jpeg",
+            lambda data, mime_type: [b"fake_jpeg"],
+        )
 
         doc = ext.extract(data=b"pdf_bytes", mime_type="application/pdf")
         assert doc.doc_type == DocumentType.PURCHASE_ORDER

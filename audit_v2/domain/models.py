@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -15,6 +14,12 @@ class DocumentType(StrEnum):
     PURCHASE_ORDER = "purchase_order"
     DELIVERY_CHALLAN = "delivery_challan"
     GOODS_RECEIPT_NOTE = "goods_receipt_note"
+    CONTRACT = "contract"
+    LETTER = "letter"
+
+
+#: Free-text document types — VLM-only extraction (report + key fields).
+TEXT_DOC_TYPES = frozenset({DocumentType.CONTRACT, DocumentType.LETTER})
 
 
 class DocumentStatus(StrEnum):
@@ -223,6 +228,11 @@ class ExtractedDocument(BaseModel):
     coverage: Coverage
     page_count: int = Field(ge=1)
     extractor_version: str
+    # VLM-only text documents (contract/letter): free-text narrative report.
+    narrative_report: str | None = None
+    # Dual extraction (regex + VLM): fields where the two methods disagreed.
+    # field_name -> "regex_value vs vlm_value". Non-empty => human review.
+    extraction_disagreements: dict[str, str] = Field(default_factory=dict)
 
 
 # ─── Findings ────────────────────────────────────────────────────────────────
@@ -253,7 +263,7 @@ class Finding(BaseModel):
     ruleset_version: str
     requires_human_review: bool = False
     supersedes: str | None = None
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     schema_version: str = "2.0"
 
 

@@ -86,3 +86,20 @@ rules:
       - CHK-FORMAT-MANDATORY-001
       - CHK-FORMAT-MANDATORY-002
       - CHK-FORMAT-CURRENCY-001
+
+  - rule_id: ROUTE-CONT-001
+    doc_type: contract
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-FORMAT-MANDATORY-001
+      - CHK-TEMP-EXPIRY-001
+
+  - rule_id: ROUTE-LET-001
+    doc_type: letter
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-FORMAT-MANDATORY-001

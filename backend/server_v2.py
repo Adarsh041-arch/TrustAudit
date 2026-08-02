@@ -14,9 +14,10 @@ from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
+from audit_v2.domain.adjudicator import Adjudicator
+from audit_v2.domain.catalog_loader import load_catalog
 from audit_v2.domain.correlation import build_clusters, build_corpus_index
 from audit_v2.domain.finding_generator import make_finding_from_result
 from audit_v2.domain.models import (
@@ -24,7 +25,6 @@ from audit_v2.domain.models import (
     CheckContext,
     DocumentType,
     ExtractedDocument,
-
     Finding,
     FindingStatus,
     Severity,
@@ -36,17 +36,56 @@ from audit_v2.domain.validators.threeway import (
     check_price_matches_po,
     check_receipt_exists,
 )
-
+from audit_v2.extraction.classifier import classify_document_from_data
 from audit_v2.orchestration.activities import extract_document
 from audit_v2.orchestration.cluster_audit import ClusterAuditor
 from audit_v2.orchestration.review_queue import ReviewAction, ReviewQueue
 from audit_v2.persistence.audit_log import AuditLog
-from audit_v2.persistence.permission_matrix import Action, Resource, Role, has_permission
+from audit_v2.persistence.permission_matrix import (
+    Resource,
+)
 from audit_v2.persistence.provenance import ProvenanceGraph
-from audit_v2.domain.catalog_loader import load_catalog
 
 CATALOG = load_catalog()
 CATALOG_BY_ID = {c.check_id: c for c in CATALOG.checks}
+
+#: Synthetic check id for extraction disagreements — not a catalog check; it
+#: represents "two extraction methods disagreed" and routes to human review.
+DISAGREEMENT_CHECK_ID = "CHK-EXTRACT-DISAGREE-001"
+
+
+def extraction_mode_of(doc: ExtractedDocument) -> str:
+    """Classify how a document was extracted: dual | regex | vlm | vlm_text."""
+    version = doc.extractor_version
+    if version.startswith("dual"):
+        return "dual"
+    if version.startswith("vlm_text"):
+        return "vlm_text"
+    if version.startswith("vlm"):
+        return "vlm"
+    return "regex"
+
+
+def _disagreement_finding(doc: ExtractedDocument, tenant_id: str) -> Finding | None:
+    if not doc.extraction_disagreements:
+        return None
+    fields = ", ".join(sorted(doc.extraction_disagreements))
+    return Finding(
+        finding_id=f"fnd_dsg_{doc.document_id}",
+        check_id=DISAGREEMENT_CHECK_ID,
+        document_id=doc.document_id,
+        tenant_id=tenant_id,
+        status=FindingStatus.NEEDS_REVIEW,
+        severity=Severity.MEDIUM,
+        message=(
+            f"Regex and VLM extraction disagreed on {len(doc.extraction_disagreements)} "
+            f"field(s): {fields}"
+        ),
+        actual=fields,
+        decision_fingerprint="deterministic:extractor-agreement",
+        ruleset_version="ruleset_v2.0",
+        requires_human_review=True,
+    )
 
 
 logger = logging.getLogger(__name__)
@@ -110,11 +149,13 @@ async def upload_documents(
         document_id = f"doc_{uuid.uuid4().hex[:8]}"
         mime_type = file.content_type or "application/pdf"
 
+        detected_type, _ = classify_document_from_data(data, mime_type)
         res = extract_document(
             data=data,
             document_id=document_id,
             tenant_id=tenant_id,
             mime_type=mime_type,
+            doc_type=detected_type,
         )
 
         if res.error or res.document is None:
@@ -128,9 +169,13 @@ async def upload_documents(
             "filename": file.filename,
             "document_id": doc.document_id,
             "doc_type": doc.doc_type.value,
-            "is_vlm_fallback": doc.extractor_version.startswith("vlm"),
+            "is_vlm_fallback": extraction_mode_of(doc) != "regex",
+            "extraction_mode": extraction_mode_of(doc),
             "extractor_version": doc.extractor_version,
             "pages": doc.page_count,
+            "disagreement_count": len(doc.extraction_disagreements),
+            "disagreement_fields": sorted(doc.extraction_disagreements),
+            "has_narrative_report": doc.narrative_report is not None,
         })
 
         AUDIT_LOG.log(
@@ -144,9 +189,36 @@ async def upload_documents(
                 "filename": file.filename,
                 "doc_type": doc.doc_type.value,
                 "extractor_version": doc.extractor_version,
+                "extraction_mode": extraction_mode_of(doc),
                 "pages": doc.page_count,
+                "disagreement_count": len(doc.extraction_disagreements),
             },
         )
+
+        # Two-method extraction disagreement -> human review (PHASES_V2 §4
+        # Phase 8: escalate rather than pick a winner silently).
+        disagreement_finding = _disagreement_finding(doc, tenant_id)
+        if disagreement_finding is not None:
+            total_val = (
+                float(doc.header.grand_total.decimal_value)
+                if doc.header.grand_total
+                else 0.0
+            )
+            REVIEW_QUEUE.enqueue(
+                finding=disagreement_finding,
+                document_id=doc.document_id,
+                tenant_id=tenant_id,
+                total_value=total_val,
+            )
+            AUDIT_LOG.log(
+                entry_id=f"log_{uuid.uuid4().hex[:8]}",
+                tenant_id=tenant_id,
+                action="extraction_disagreement",
+                resource_type=Resource.DOCUMENT,
+                resource_id=doc.document_id,
+                actor_id="system",
+                payload={"disagreed_fields": sorted(doc.extraction_disagreements)},
+            )
 
     if not ingested_docs:
         raise HTTPException(status_code=400, detail="Failed to extract any uploaded documents")
@@ -248,7 +320,12 @@ async def upload_documents(
         "document": first_doc,
         "extraction_results": extraction_results,
         "findings": [f.model_dump() for f in batch_findings],
-        "is_vlm_fallback": any(d.extractor_version.startswith("vlm") for d in ingested_docs),
+        "is_vlm_fallback": any(
+            extraction_mode_of(d) != "regex" for d in ingested_docs
+        ),
+        "requires_human_review": any(
+            d.extraction_disagreements for d in ingested_docs
+        ),
     }
 
 

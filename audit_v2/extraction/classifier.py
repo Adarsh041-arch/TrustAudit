@@ -40,6 +40,18 @@ _TYPE_SIGNATURES: list[tuple[DocumentType, list[re.Pattern], float]] = [
         re.compile(r"GRN\s*(?:No|Number|#)", re.IGNORECASE),
         re.compile(r"(?:Material|Goods)\s*Received", re.IGNORECASE),
     ], 0.3),
+    (DocumentType.CONTRACT, [
+        re.compile(r"\bAgreement\b", re.IGNORECASE),
+        re.compile(r"\bContract\b", re.IGNORECASE),
+        re.compile(r"Non-?\s*Disclosure", re.IGNORECASE),
+        re.compile(r"Terms\s+and\s+Conditions", re.IGNORECASE),
+    ], 0.3),
+    (DocumentType.LETTER, [
+        re.compile(r"\bLetter\b", re.IGNORECASE),
+        re.compile(r"\bMemo(?:randum)?\b", re.IGNORECASE),
+        re.compile(r"\bNotice\b", re.IGNORECASE),
+        re.compile(r"Correspondence", re.IGNORECASE),
+    ], 0.2),
 ]
 
 

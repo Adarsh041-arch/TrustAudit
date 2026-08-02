@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from audit_v2.domain.models import DocumentStatus, DocumentType, ExtractedDocument
+from audit_v2.domain.models import TEXT_DOC_TYPES, DocumentStatus, DocumentType, ExtractedDocument
 from audit_v2.extraction.classifier import EXTRACTOR_REGISTRY
+from audit_v2.extraction.merge import merge_extractions
 from audit_v2.extraction.text_extractor import TextExtractor
 from audit_v2.ingestion.document_store import DocumentRecord, DocumentStore
 from audit_v2.ingestion.pdf_utils import (
@@ -102,38 +104,119 @@ def extract_document(
     tenant_id: str,
     doc_type: DocumentType = DocumentType.INVOICE,
 ) -> ExtractionResult:
+    """Extract a document, branching on its type.
+
+    - Text documents (contract/letter): VLM-only — key fields + narrative
+      report. No regex pass; there are no tables to regex.
+    - Tabular documents (invoice/PO/DC/GRN): two parallel extraction passes
+      (regex + VLM) merged field-by-field; disagreements are recorded on the
+      merged document for human review.
+    """
+    if doc_type in TEXT_DOC_TYPES:
+        return extract_text_with_vlm(data, mime_type, document_id, tenant_id, doc_type)
+    return _extract_dual(data, mime_type, document_id, tenant_id, doc_type)
+
+
+def _extract_dual(
+    data: bytes,
+    mime_type: str,
+    document_id: str,
+    tenant_id: str,
+    doc_type: DocumentType,
+) -> ExtractionResult:
+    """Run the regex extractor and the VLM extractor in parallel, then merge."""
+    raw_text = _raw_text(data, mime_type)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        regex_future = pool.submit(
+            extract_with_regex, data, mime_type, document_id, tenant_id, doc_type,
+        )
+        vlm_future = pool.submit(
+            extract_with_vlm, data, mime_type, document_id, tenant_id,
+        )
+        regex_res = regex_future.result()
+        vlm_res = vlm_future.result()
+
+    if regex_res.document is None and vlm_res.document is None:
+        return ExtractionResult(
+            error=regex_res.error or vlm_res.error or "Extraction returned None",
+            text=raw_text,
+        )
+    if regex_res.document is None:
+        return ExtractionResult(document=vlm_res.document, text=raw_text)
+    if vlm_res.document is None:
+        return ExtractionResult(document=regex_res.document, text=raw_text)
+
+    merged = merge_extractions(regex_res.document, vlm_res.document).merged
+    if merged.extraction_disagreements:
+        logger.info(
+            "Dual extraction for %s: %d disagreed fields → human review",
+            document_id, len(merged.extraction_disagreements),
+        )
+    return ExtractionResult(document=merged, text=raw_text)
+
+
+def extract_with_regex(
+    data: bytes,
+    mime_type: str,
+    document_id: str,
+    tenant_id: str,
+    doc_type: DocumentType,
+) -> ExtractionResult:
+    """Regex-only extraction — the deterministic half of the dual pass."""
     extractor_cls = EXTRACTOR_REGISTRY.get(doc_type)
     if extractor_cls is None:
         return ExtractionResult(error=f"No extractor registered for {doc_type}")
-    ext = extractor_cls()
     try:
-        doc = ext.extract(data, mime_type)
+        doc = extractor_cls().extract(data, mime_type)
         doc.document_id = document_id
         doc.tenant_id = tenant_id
         return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
     except ValueError as e:
-        vlm_res = _try_vlm_fallback(data, mime_type, document_id, tenant_id)
-        if vlm_res is not None:
-            return vlm_res
+        logger.warning("Regex extraction failed for %s: %s", document_id, e)
         return ExtractionResult(error=str(e))
 
 
-def _try_vlm_fallback(
-    data: bytes, mime_type: str, document_id: str, tenant_id: str,
-) -> ExtractionResult | None:
+def extract_with_vlm(
+    data: bytes,
+    mime_type: str,
+    document_id: str,
+    tenant_id: str,
+) -> ExtractionResult:
+    """VLM-only extraction — the model half of the dual pass."""
     if not os.getenv("NVIDIA_API_KEY"):
-        return None
+        return ExtractionResult(error="NVIDIA_API_KEY not set — VLM pass skipped")
     try:
         from audit_v2.extraction.vlm_extractor import VlmExtractor
-        vlm = VlmExtractor()
-        doc = vlm.extract(data, mime_type)
+        doc = VlmExtractor().extract(data, mime_type)
         doc.document_id = document_id
         doc.tenant_id = tenant_id
         return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
     except Exception as exc:
-        logger.warning("VLM fallback extraction failed for %s: %s", document_id, exc)
-        return None
+        logger.warning("VLM extraction failed for %s: %s", document_id, exc)
+        return ExtractionResult(error=str(exc))
 
+
+def extract_text_with_vlm(
+    data: bytes,
+    mime_type: str,
+    document_id: str,
+    tenant_id: str,
+    doc_type: DocumentType,
+) -> ExtractionResult:
+    """VLM-only extraction for free-text documents (contract/letter)."""
+    if not os.getenv("NVIDIA_API_KEY"):
+        return ExtractionResult(error="VLM text extraction requires NVIDIA_API_KEY")
+    try:
+        from audit_v2.extraction.text_doc_extractor import VlmTextExtractor
+        doc = VlmTextExtractor().extract(data, mime_type)
+        doc.document_id = document_id
+        doc.tenant_id = tenant_id
+        doc.doc_type = doc_type
+        return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
+    except Exception as exc:
+        logger.warning("VLM text extraction failed for %s: %s", document_id, exc)
+        return ExtractionResult(error=str(exc))
 
 
 def _raw_text(data: bytes, mime_type: str) -> str:

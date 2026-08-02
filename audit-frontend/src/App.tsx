@@ -83,7 +83,9 @@ export function App() {
                 Batch Ingest Documents (PDF, Scanned Image, PNG, JPG)
               </h2>
               <p className="text-[13px] text-muted mb-4">
-                Select multiple documents at once (Invoices, Purchase Orders, Delivery Challans, Goods Receipts). Text layers are extracted deterministically; scanned or unreadable pages automatically transition to VLM Vision AI.
+                Invoices, Purchase Orders, Delivery Challans and Goods Receipts run dual extraction (deterministic regex
+                in parallel with VLM Vision AI; field-level disagreements are queued for human review). Contracts and
+                letters are text-only documents extracted by VLM with a narrative report.
               </p>
 
               <div className="flex flex-col sm:flex-row gap-3 items-center">
@@ -123,10 +125,27 @@ export function App() {
                       Ingestion Results for {uploadResult.document.document_id}
                     </h3>
                     <VlmStatusBadge
-                      isVlm={uploadResult.is_vlm_fallback}
+                      mode={
+                        uploadResult.extraction_results?.[0]?.extraction_mode ??
+                        (uploadResult.document.extractor_version?.startsWith('dual')
+                          ? 'dual'
+                          : uploadResult.document.extractor_version?.startsWith('vlm_text')
+                            ? 'vlm_text'
+                            : uploadResult.document.extractor_version?.startsWith('vlm')
+                              ? 'vlm'
+                              : 'regex')
+                      }
                       extractorVersion={uploadResult.document.extractor_version}
                     />
                   </div>
+
+                  {/* Extraction disagreement -> human review */}
+                  {uploadResult.requires_human_review && (
+                    <div className="p-3 rounded-lg bg-amber-50 border-[0.5px] border-amber-600/30 text-amber-700 text-[13px]">
+                      Regex and VLM extraction disagreed on some fields in this batch.
+                      Disagreements are queued in the Review Queue for human review.
+                    </div>
+                  )}
 
                   {/* Header Extracted Values */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -147,6 +166,38 @@ export function App() {
                       <div className="text-[14px] font-medium text-ink">{uploadResult.document.header.po_reference?.value || 'N/A'}</div>
                     </div>
                   </div>
+
+                  {/* Disagreed fields (dual extraction) */}
+                  {uploadResult.document.extraction_disagreements &&
+                    Object.keys(uploadResult.document.extraction_disagreements).length > 0 && (
+                      <div className="p-3 bg-amber-50 rounded-lg border-[0.5px] border-amber-600/30">
+                        <div className="text-[11px] text-amber-700 uppercase font-medium mb-1">
+                          Regex vs VLM disagreements ({Object.keys(uploadResult.document.extraction_disagreements).length})
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(uploadResult.document.extraction_disagreements).map(([field, diff]) => (
+                            <span
+                              key={field}
+                              className="px-2 py-1 rounded-lg bg-white border-[0.5px] border-amber-600/30 text-amber-700 text-[12px] font-mono"
+                            >
+                              {field}: {diff}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                  {/* VLM narrative report (contracts/letters) */}
+                  {uploadResult.document.narrative_report && (
+                    <div className="p-3 bg-surface-1 rounded-lg border-[0.5px] border-border">
+                      <div className="text-[11px] text-muted uppercase font-medium mb-1">
+                        VLM Narrative Report
+                      </div>
+                      <p className="text-[13px] text-ink leading-relaxed">
+                        {uploadResult.document.narrative_report}
+                      </p>
+                    </div>
+                  )}
 
                   {/* Findings Table */}
                   <div>

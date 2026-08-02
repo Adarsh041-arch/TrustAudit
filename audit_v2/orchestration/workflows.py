@@ -4,6 +4,7 @@ import logging
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
 from audit_v2.domain.catalog_loader import entries_by_id, load_catalog
 from audit_v2.domain.finding_generator import make_finding_from_result
 from audit_v2.domain.models import (
@@ -118,6 +119,7 @@ class AuditWorkflowOutput:
     routing_rule_id: str | None = None
     failure_class: FailureClass | None = None
     document: ExtractedDocument | None = None
+    requires_human_review: bool = False
 
 
 class AuditWorkflow:
@@ -243,6 +245,19 @@ class AuditWorkflow:
                     model_version=inp.model_version,
                 )
 
+                # PHASES_V2 §4 Phase 8: extractor disagreement routes to human
+                # review. The adjudicator may never overturn deterministic
+                # verdicts; it only flags the disagreement.
+                requires_human_review = bool(normalized.extraction_disagreements)
+                if requires_human_review:
+                    adjudication = Adjudicator().adjudicate(AdjudicationRequest(
+                        document_id=inp.document_id,
+                        tenant_id=inp.tenant_id,
+                        deterministic_findings=stored_findings,
+                        extraction_disagreements=normalized.extraction_disagreements,
+                    ))
+                    requires_human_review = adjudication.requires_human_review
+
                 # PHASES_V2 §3.5: a document whose pages were not all examined
                 # cannot be reported as complete, regardless of findings.
                 final_status = (
@@ -256,6 +271,7 @@ class AuditWorkflow:
                     status=final_status,
                     routing_rule_id=routing_decision.rule_id,
                     document=normalized,
+                    requires_human_review=requires_human_review,
                 )
 
             store.update_status(inp.document_id, "READY")

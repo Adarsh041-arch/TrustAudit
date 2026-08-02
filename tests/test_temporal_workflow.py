@@ -15,14 +15,19 @@ from temporalio.worker import Worker
 from audit_v2.ingestion.document_store import MemoryDocumentStore
 from audit_v2.orchestration.activities_temporal import (
     ValidateAndEmitInput,
+    classify_activity,
     extract_activity,
     fetch_document,
+    merge_extractions_activity,
     persist_results_activity,
     process_pdf_activity,
+    regex_extract_activity,
     security_scan_activity,
     set_activity_store,
     validate_and_dedup,
     validate_and_emit_activity,
+    vlm_extract_activity,
+    vlm_text_extract_activity,
 )
 from audit_v2.orchestration.temporal_workflow import (
     AuditDocumentWorkflow,
@@ -54,6 +59,11 @@ async def _run_workflow(
             fetch_document,
             validate_and_dedup,
             process_pdf_activity,
+            classify_activity,
+            regex_extract_activity,
+            vlm_extract_activity,
+            vlm_text_extract_activity,
+            merge_extractions_activity,
             extract_activity,
             security_scan_activity,
             validate_and_emit_activity,

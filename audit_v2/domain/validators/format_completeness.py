@@ -25,6 +25,14 @@ MANDATORY_FIELDS_BY_TYPE = {
     DocumentType.GOODS_RECEIPT_NOTE: [
         "vendor_name", "grn_date",
     ],
+    # Text documents: VLM-only extraction maps party/date fields into these
+    # standard header slots (see text_doc_extractor.py).
+    DocumentType.CONTRACT: [
+        "vendor_name", "buyer_name", "invoice_date", "expiry_date",
+    ],
+    DocumentType.LETTER: [
+        "vendor_name", "invoice_date",
+    ],
 }
 
 

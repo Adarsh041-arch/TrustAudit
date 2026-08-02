@@ -276,3 +276,27 @@ all verdict-relevant fields.
 | ~~`evaluation/metrics.py` (`compute_ece`, `determinism_score`) has no callers.~~ ✅ **Done 2026-07-27** — wired into `measure_v2.py`. ECE=0.00 (deterministic-only), determinism=1.00 (100% repeatable). Extraction field scorer also added (F1=0.00 currently — genuine measurement that extraction needs improvement). All 3 appear in gates table. | M2 — done |
 | ~~**Injection path not covered in golden set.** The security gate was vacuously true — no injection-laced documents existed in the manifest pool.~~ ✅ **Done 2026-07-27** — 10 injection PDFs generated (`generator.py --include-injection`), manifests expect `QUARANTINED_SECURITY`, harness scores document-level status, `security_injection` gate PASS at 1.0 (10/10 detected). | M2 — done |
 | Extraction regexes remain Indian-GST-shaped and brittle (§1 above still largely applies). Unparseable line items are still dropped silently. | M3 |
+
+---
+
+## 13. Dual parallel extraction & text docs (2026-08-02, session 5e)
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| **VLM now runs on every tabular document, not just fallback.** Dual extraction doubles model cost per invoice/PO/DC/GRN vs. the old regex-first/VLM-fallback path. | orchestration/activities.py::_extract_dual | �8 cost budget (= ?4.00/doc) needs re-measurement; consider routing VLM pass off when text layer + regex confidence is high. |
+| **On disagreement the regex value wins** by design (deterministic preference), and the regex side is the brittle Indian-GST-shaped one (shortcomings �1). A wrong regex value can override a correct VLM value; mitigated only by the human-review flag, not by correction. | extraction/merge.py::_merge_pv | False positives route to review rather than being auto-fixed; extraction-F1 on the golden set (currently 0.00) governs how often this matters. |
+| **Text-doc classification is regex-signature based.** A contract/letter lacking the keywords (`Agreement`, `Letter`, �) falls back to the `invoice` default and runs the dual tabular path with an empty regex side. | extraction/classifier.py | Misrouting produces invoice-typed text docs with no line items; VLM still extracts, but routing rules/checks differ. A low-confidence classifier path should exist. |
+| **Semantic field mapping for text docs is approximate:** contract party ? `vendor_name`/`buyer_name`, effective date ? `invoice_date`. Validators interpret these as vendor/PO semantics. | extraction/text_doc_extractor.py | Works for mandatory/expiry checks; would mislead vendor-centric checks if contract checks grow. |
+| `CHK-TEMP-EXPIRY-001` (now applicable to contracts) uses `date.today()` � a date-dependent verdict, not replay-stable. Pre-existing; now reaches a new doc family. | domain/validators/temporal.py | Determinism budget (�2, = 98% repeat-run agreement) does not hold across date boundaries for contracts near expiry. |
+| VLM-only text extraction hard-requires `NVIDIA_API_KEY` � a text document without a key is `FAILED` with no alternative path. | orchestration/activities.py::extract_text_with_vlm | Acceptable (VLM-only is the spec), but the failure is not distinguished from a corrupt file in status terms. |
+
+---
+
+## 14. API/UI wiring of dual extraction & text docs (2026-08-02, session 5f)
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| `CHK-EXTRACT-DISAGREE-001` is a synthetic check id outside the catalog. It appears in findings/review-queue payloads with no matching catalog entry, so catalog-validity tests (which iterate the catalog) don't cover it, and the UI's findings tab shows a check id the catalog doesn't know. | backend/server_v2.py | Cosmetic today; would break catalog-driven scoring if a harness ever maps findings back to catalog checks. Consider registering it as a real (non-deterministic) catalog entry or documenting it as an internal id. |
+| Disagreement findings are enqueued once at upload time only. Re-uploading or re-running adjudication on an existing document does not refresh the queue; `REVIEW_QUEUE` is in-memory and lost on restart (pre-existing, now with more items). | backend/server_v2.py | Review work is ephemeral across server restarts. |
+| `requires_human_review` is computed per-batch from disagreements, but the UI banner disappears once the upload result is stale; the review-queue tab is the only durable surface for disagreements. | audit-frontend/src/App.tsx | Acceptable for v1 of the UI; a findings-level "needs review" count would be more honest. |
+| `B008` (FastAPI `File(...)` default) remains the single ruff violation in server_v2.py — pre-existing FastAPI idiom, not introduced here. | backend/server_v2.py:138 | Baseline lint noise only. |

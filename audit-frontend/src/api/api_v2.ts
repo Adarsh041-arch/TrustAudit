@@ -4,6 +4,21 @@
 
 export const V2_BASE = 'http://localhost:8100/api/v2'
 
+export type ExtractionMode = 'dual' | 'regex' | 'vlm' | 'vlm_text'
+
+export interface ExtractionResultEntry {
+  filename: string
+  document_id: string
+  doc_type: string
+  is_vlm_fallback: boolean
+  extraction_mode: ExtractionMode
+  extractor_version: string
+  pages: number
+  disagreement_count: number
+  disagreement_fields: string[]
+  has_narrative_report: boolean
+}
+
 export interface UploadResponse {
   message: string
   document: any
@@ -11,6 +26,8 @@ export interface UploadResponse {
   findings: any[]
   cluster_id: string | null
   is_vlm_fallback: boolean
+  requires_human_review: boolean
+  extraction_results?: ExtractionResultEntry[]
 }
 
 
