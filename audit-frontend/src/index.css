@@ -1,12 +1,10 @@
 @import "tailwindcss";
 
 @theme {
-  /* Ink */
-  --color-ink: #2C2C2A;
-  --color-ink-50: #F5F5F4;
-
-  /* Muted secondary text */
-  --color-muted: #5F5E5A;
+  /* Ink dynamically shifts with dark mode variables */
+  --color-ink: var(--ink);
+  --color-ink-50: var(--ink-50);
+  --color-muted: var(--ink-muted);
 
   /* Teal — model / AI outputs */
   --color-teal-50: #E1F5EE;
@@ -45,21 +43,40 @@
 :root {
   --surface-1: #F5F5F4;
   --surface-2: #FFFFFF;
-  --border: #d4d4d0;
+  --border: #D4D4D0;
+  --ink: #2C2C2A;
+  --ink-50: #F5F5F4;
+  --ink-muted: #5F5E5A;
 }
 
 .dark {
-  --surface-1: #1A1A18;
-  --surface-2: #242422;
-  --border: #3D3C38;
+  --surface-1: #121211;
+  --surface-2: #1D1D1C;
+  --border: #2F2F2D;
+  --ink: #E5E5DF;
+  --ink-50: #252523;
+  --ink-muted: #9E9D97;
 }
 
 body {
   font-family: "Inter", system-ui, -apple-system, sans-serif;
-  color: var(--color-ink);
+  color: var(--ink);
   background: var(--surface-1);
-  line-height: 1.7;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-1);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
 }
 
 @keyframes scan {
