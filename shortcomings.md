@@ -267,12 +267,10 @@ all verdict-relevant fields.
 | **No malware scan.** `QUARANTINED_MALWARE` is an enum value no code path can set. | Phase 3 |
 | **`is_encrypted_pdf` is `b"/Encrypt" in data`** — a naive substring scan that false-positives on any PDF containing those bytes in a stream. | Phase 3 |
 | ~~**Corpus-level checks remain SKIPs**~~ ✅ **Done 2026-08-02 (Session 5)** — `audit_v2/domain/correlation.py` (`build_clusters`, `build_corpus_index`), `threeway.py` (`CHK-XDOC-QTY-001`, `CHK-XDOC-PRICE-001`, `CHK-XDOC-RECEIPT-001`, `CHK-XDOC-CUMUL-001`), `duplicate.py` (`CHK-DUP-DOC-001`), `reference_integrity.py` (`CHK-REF-QTY-001/002`), and `cluster_audit.py` (`ClusterAuditor` with deferred re-evaluation and `supersedes` tracking) shipped and tested (35 tests pass). | Phase 7 — done |
-
 | `CHK-FORMAT-WORDS-001` is model_assisted and deferred. | Phase 8 |
 | `MemoryDocumentStore` has no thread/async safety; `create` only increments `_counter` on the non-duplicate path, so duplicates collide on generated id. | M2 |
 | `MemoryVectorStore.search` ignores both the query vector and `tenant_id` — it is not a vector search, and post-filtering by tenant would leak neighbours anyway (§3.7). | M4 |
 | ~~`pii_redactor` exists with 13 tests but **is called by nothing**~~ ✅ **Done 2026-08-02 (Session 5b)** — `NvidiaGateway.extract` calls `redact(prompt, pii_classes)` before sending prompt payloads to external model endpoints. | Phase 2 — done |
-
 | ~~`evaluation/metrics.py` (`compute_ece`, `determinism_score`) has no callers.~~ ✅ **Done 2026-07-27** — wired into `measure_v2.py`. ECE=0.00 (deterministic-only), determinism=1.00 (100% repeatable). Extraction field scorer also added (F1=0.00 currently — genuine measurement that extraction needs improvement). All 3 appear in gates table. | M2 — done |
 | ~~**Injection path not covered in golden set.** The security gate was vacuously true — no injection-laced documents existed in the manifest pool.~~ ✅ **Done 2026-07-27** — 10 injection PDFs generated (`generator.py --include-injection`), manifests expect `QUARANTINED_SECURITY`, harness scores document-level status, `security_injection` gate PASS at 1.0 (10/10 detected). | M2 — done |
 | Extraction regexes remain Indian-GST-shaped and brittle (§1 above still largely applies). Unparseable line items are still dropped silently. | M3 |
@@ -283,12 +281,12 @@ all verdict-relevant fields.
 
 | Issue | Location | Impact |
 |-------|----------|--------|
-| **VLM now runs on every tabular document, not just fallback.** Dual extraction doubles model cost per invoice/PO/DC/GRN vs. the old regex-first/VLM-fallback path. | orchestration/activities.py::_extract_dual | �8 cost budget (= ?4.00/doc) needs re-measurement; consider routing VLM pass off when text layer + regex confidence is high. |
-| **On disagreement the regex value wins** by design (deterministic preference), and the regex side is the brittle Indian-GST-shaped one (shortcomings �1). A wrong regex value can override a correct VLM value; mitigated only by the human-review flag, not by correction. | extraction/merge.py::_merge_pv | False positives route to review rather than being auto-fixed; extraction-F1 on the golden set (currently 0.00) governs how often this matters. |
-| **Text-doc classification is regex-signature based.** A contract/letter lacking the keywords (`Agreement`, `Letter`, �) falls back to the `invoice` default and runs the dual tabular path with an empty regex side. | extraction/classifier.py | Misrouting produces invoice-typed text docs with no line items; VLM still extracts, but routing rules/checks differ. A low-confidence classifier path should exist. |
-| **Semantic field mapping for text docs is approximate:** contract party ? `vendor_name`/`buyer_name`, effective date ? `invoice_date`. Validators interpret these as vendor/PO semantics. | extraction/text_doc_extractor.py | Works for mandatory/expiry checks; would mislead vendor-centric checks if contract checks grow. |
-| `CHK-TEMP-EXPIRY-001` (now applicable to contracts) uses `date.today()` � a date-dependent verdict, not replay-stable. Pre-existing; now reaches a new doc family. | domain/validators/temporal.py | Determinism budget (�2, = 98% repeat-run agreement) does not hold across date boundaries for contracts near expiry. |
-| VLM-only text extraction hard-requires `NVIDIA_API_KEY` � a text document without a key is `FAILED` with no alternative path. | orchestration/activities.py::extract_text_with_vlm | Acceptable (VLM-only is the spec), but the failure is not distinguished from a corrupt file in status terms. |
+| **VLM now runs on every tabular document, not just fallback.** Dual extraction doubles model cost per invoice/PO/DC/GRN vs. the old regex-first/VLM-fallback path. | orchestration/activities.py::_extract_dual | Cost budget (~₹4.00/doc) needs re-measurement; consider routing VLM pass off when text layer + regex confidence is high. |
+| **On disagreement the regex value wins** by design (deterministic preference), and the regex side is the brittle Indian-GST-shaped one (shortcomings §1). A wrong regex value can override a correct VLM value; mitigated only by the human-review flag, not by correction. | extraction/merge.py::_merge_pv | False positives route to review rather than being auto-fixed; extraction-F1 on the golden set (currently 0.00) governs how often this matters. |
+| **Text-doc classification is regex-signature based.** A contract/letter lacking the keywords (`Agreement`, `Letter`, `Contract`) falls back to the `invoice` default and runs the dual tabular path with an empty regex side. | extraction/classifier.py | Misrouting produces invoice-typed text docs with no line items; VLM still extracts, but routing rules/checks differ. A low-confidence classifier path should exist. |
+| **Semantic field mapping for text docs is approximate:** contract party → `vendor_name`/`buyer_name`, effective date → `invoice_date`. Validators interpret these as vendor/PO semantics. | extraction/text_doc_extractor.py | Works for mandatory/expiry checks; would mislead vendor-centric checks if contract checks grow. |
+| `CHK-TEMP-EXPIRY-001` (now applicable to contracts) uses `date.today()` → a date-dependent verdict, not replay-stable. Pre-existing; now reaches a new doc family. | domain/validators/temporal.py | Determinism budget (≥98% repeat-run agreement) does not hold across date boundaries for contracts near expiry. |
+| VLM-only text extraction hard-requires `NVIDIA_API_KEY` → a text document without a key is `FAILED` with no alternative path. | orchestration/activities.py::extract_text_with_vlm | Acceptable (VLM-only is the spec), but the failure is not distinguished from a corrupt file in status terms. |
 
 ---
 
@@ -312,7 +310,7 @@ all verdict-relevant fields.
 | **PDF fallback silently returns DOCX bytes.** When reportlab is missing, `generate_pdf_report` returns a DOCX payload (V1 behavior, kept verbatim) — a caller checking `%PDF` magic gets a hard failure instead of a clear error. | reporting/report_builders.py | Edge case only (reportlab is a hard dependency now); documented as the intended V1-parity fallback. |
 | ~~**DOCX failed-rules table row-per-cell malformed**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — `table.add_row()` was inside the per-cell loop, so each rule became N diagonal single-cell rows; now one row per rule. Regression-guarded by the DOCX test's same-row assertion. | — | — |
 | ~~**`SEVERITY_COLORS` was dead code**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — wired into DOCX severity cell run color and PDF severity Paragraph `textColor` (grey fallback). | — | — |
-| ~~**PDF table colWidths exceeded the letter frame**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — `[80, 60, 240, 174]` (554pt) → `[80, 60, 220, 144]` (504pt). |
+| ~~**PDF table colWidths exceeded the letter frame**~~ ✅ **Fixed 2026-08-02 (`1e44010`)** — `[80, 60, 240, 174]` (554pt) → `[80, 60, 220, 144]` (504pt). | — | — |
 
 ---
 
@@ -324,3 +322,20 @@ all verdict-relevant fields.
 | **The brief's `risk_distribution == []` assertion was unsatisfiable.** `aggregate_results` emits one risk bucket per audited doc (counter over `risk_level`), so with `total_audited == 1` the distribution has exactly 1 entry (confirmed by `tests/test_aggregator.py:13,35`). Changed to `len(...) == 1`. | tests/test_server_v2.py | Brief-internal contradiction; resolved, not weakened — shape assertion retained. |
 | **`enrich_document` embeds a base64 page-1 preview per document.** `generate_preview` returns a base64 JPEG (quality 80, ≤180px, typically tens of KB). With large multi-doc batches this materially inflates the upload JSON payload on every response. | backend/server_v2.py::enrich_document | Acceptable for V1 parity (same as V1's runner); consider a `include_previews=false` query param if payload size becomes a problem. |
 | **Scores depend on corpus state.** `enriched` scores count `CHK-DUP-DOC-001` findings against the whole `DOCUMENTS_STORE`, so re-uploading the same file can lower the second copy's score; `compute_prediction_interval` on `n=1` yields the hardcoded ±12.5 band. Both are V1-parity behavior. | backend/server_v2.py | Deterministic per response; differs across uploads of identical content. |
+
+---
+
+## 17. V1 Feature Parity (2026-08-02, SDD tasks 5–11)
+
+| Issue | Location | Impact |
+|-------|----------|--------|
+| **Report endpoints are stateless** — the frontend must resend the full accumulated payload (`documents[]`, `findings[]`, `audit_title`) on every download. No server-side session or persistence. | `backend/server_v2.py::generate_report`, `audit-frontend/src/sections/ReportSection.tsx` | Acceptable for V1 parity (matches V1 runner behavior), but not production-ready for large audits. |
+| **`average_latency_seconds` / `average_confidence_score` eval metrics are `null`** — no latency or confidence telemetry exists in the pipeline. | `backend/server_v2.py::get_eval`, `evaluation/baselines/v2.json` | Eval grid shows "—" for these; golden-set harness would need to capture timing/confidence to populate. |
+| **`compliance_trends` is a per-document score list, not a time series** — V1 hardcoded quarterly buckets; V2 emits `[{document_name, score}]` which the frontend renders as a line chart. | `audit_v2/analytics/aggregator.py`, `audit-frontend/src/sections/DashboardSection.tsx` | Visual representation only; no historical trending across sessions. |
+| **Confidence threshold slider is client-side cosmetic** — it only affects the "Human review recommended" badge display in the inspector; the server does not gate on it. | `audit-frontend/src/sections/SettingsSection.tsx`, `audit-frontend/src/App.tsx` | Threshold persists in localStorage but has no server enforcement. |
+| **ML prediction is rule-based by design** — V1's sklearn path was deliberately dropped; `predict_risk` emits a static card with `mode: "Rule-based (V2)"`. | `audit_v2/analytics/risk_predictor.py` | No learned model; transparency over "fake ML" but limits sophistication. |
+| **Dual extraction doubles model cost for tabular docs** — every invoice/PO/DC/GRN now runs both regex and VLM, regardless of text-layer quality. | `audit_v2/orchestration/activities.py::_extract_dual` | Cost budget (~₹4.00/doc) needs re-measurement against V1's fallback-only path. |
+| **ReportLab is a hard dependency** — PDF generation fails with ImportError if not installed (no graceful degradation in CI). | `audit_v2/reporting/report_builders.py`, `audit_v2/pyproject.toml` | CI must ensure `reportlab` installs (it does via pyproject.toml). |
+| **Frontend test coverage is zero** — no React Testing Library / Vitest setup; only `tsc --noEmit` and `npm run build` verify. | `audit-frontend/` | UI regressions caught only manually. |
+
+---

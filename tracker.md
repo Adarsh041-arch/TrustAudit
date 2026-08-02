@@ -11,6 +11,37 @@
 
 ## Build Log
 
+### 2026-08-02 (session 5g) — V1 Feature Parity
+
+**`audit_v2/analytics/`** — three pure-Python modules (no network, no model calls):
+- `risk_scorer.py` — `compute_document_score` (severity-weighted), `risk_level_for`, `risk_explanation_for`
+- `risk_predictor.py` — `severity_counts`, `predict_risk` (rule-based ML card, mode "Rule-based (V2)")
+- `aggregator.py` — `aggregate_results` (KPIs + risk_distribution + compliance_trends), `compute_prediction_interval` (t-distribution 95% CI, n=1 hardcoded ±12.5)
+- **`audit_v2/extraction/preview.py`** — `generate_preview` (PyMuPDF render page 1 → 180px JPEG quality 80 → base64)
+- **`audit_v2/reporting/report_builders.py`** — `generate_docx_report` (python-docx) + `generate_pdf_report` (reportlab) with `SEVERITY_COLORS` wired into both formats; `reportlab>=4.0` added to pyproject.toml
+
+**`backend/server_v2.py`** — upload enrichment endpoint (`/api/v2/audit/upload`):
+- Per-document `enrich_document` producing `DocumentAuditResult` shape + `document_id` (score, risk_level/explanation, failed_rules[], ml_prediction, confidence, human_review_recommended, preview_base64, page_count, header metadata)
+- Response gains `document_results[]`, `prediction_interval` (CI on mean score), `analytics` (KPIs + chart data)
+- `pending_enrich` tuples collected during ingestion; `enriched` built after `batch_findings` finalized (cluster audit)
+
+**Eval + Report endpoints** (`GET /api/v2/audit/eval`, `POST /api/v2/audit/report?format=docx|pdf`):
+- `/eval` reads `evaluation/baselines/v2.json`, computes 8-metric grid (accuracy, precision, recall, f1, FPR, FNR, avg_latency=null, avg_confidence=null)
+- `/report` consumes enriched payload, returns binary DOCX/PDF via report builders
+
+**Frontend (audit-frontend/):**
+- **DashboardSection** — 5 KPI cards + 3 Recharts panels (Risk pie, Top Violations bar, Document Scores line)
+- **Document Inspector** — per-doc selector list + `DocumentCard` (preview, score, interval, failed rules) + `ProcessingAnimation` during upload
+- **ReportSection** — DOCX/PDF download via `downloadReportV2` (resends accumulated session payload to stateless endpoint)
+- **SettingsSection** — confidence threshold slider (persisted to localStorage) + Eval grid display (8 metrics from `/eval`)
+
+**Verification:**
+- `python -m pytest tests/test_server_v2.py -v` → 9 passed
+- `python -m pytest tests/test_report_builders.py -v` → 2 passed
+- `ruff check backend/server_v2.py audit_v2/analytics audit_v2/reporting audit_v2/extraction/preview.py` → B008 baseline only
+- `npx tsc --noEmit` → clean
+- `npm run build` → clean
+
 ### 2026-08-02 (SDD task 6, V1-parity) — enriched upload response (`f80d93c`)
 
 - **`backend/server_v2.py`** — upload response now carries per-document derived fields plus batch analytics. New pure helpers `_failed_rule(f)` (catalog-backed rule card: title/finding/evidence/impact/recommendation/severity/page) and `enrich_document(doc, filename, findings, data, mime_type)` producing the V1 `DocumentAuditResult` shape + `document_id`: score (severity-weighted), `risk_level`/`risk_explanation`, `failed_rules`, `ml_prediction` (rule-based card with mode "Rule-based (V2)"), `confidence_score`, `human_review_recommended`, remarks/summary, base64 page-1 preview, `page_count`, header metadata. Response gains `document_results`, `prediction_interval` (95% CI on mean score), and `analytics` (KPIs + chart data) from the V1-parity ports (`risk_scorer`, `risk_predictor`, `aggregator`, `preview`).
