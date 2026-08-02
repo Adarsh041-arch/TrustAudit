@@ -11,7 +11,15 @@
 
 ## Build Log
 
-### 2026-08-02 (session 5h) — Strict V1 / V2 Architectural Separation
+### 2026-08-02 (session 5i) — Calibrated Policy Severities
+
+- **`checklist.md`**:
+  - **High / Critical Severity (`mandatory: true`)**: Reserved strictly for core financial integrity rules — **R003: Mathematical Accuracy** (arithmetic), **R005: Date Validity & Future Dates**, and **R006: Currency & Amount Consistency**.
+  - **Medium / Low Severity (`mandatory: false`)**: Re-calibrated document-dependent rules — **R001: Legibility**, **R002: Mandatory Fields**, **R004: Signatures & Stamps**, **R007: Vendor/Customer Info**, **R009: Payment Terms**, **R010: Tax Breakdown**, **R011: Descriptions**, **R012: Attachments**. Requirements vary by document format (e.g. computer tax invoices vs point-of-sale receipts often omit physical signatures or secondary addresses).
+
+- **`audit_engine/explainable_audit.py`**:
+  - Updated VLM prompt instructions with explicit severity guidelines for core financial integrity vs document-dependent fields.
+
 
 Enforced 100% boundary isolation per `AGENTS.md` and `.importlinter`:
 
