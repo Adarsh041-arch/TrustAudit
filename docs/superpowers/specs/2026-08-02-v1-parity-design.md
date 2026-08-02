@@ -40,7 +40,7 @@ Scores/percentages are floats (not monetary — Decimal rule untouched). All thr
 
 ### `backend/server_v2.py` changes
 
-- Upload response: each document gains `score`, `risk_level`, `risk_explanation`, `ml_prediction`, `confidence_score`, `human_review_recommended`, `preview_base64`. Batch gains `analytics` (kpis + charts) and `prediction_interval`.
+- Upload response: each document gains `score`, `risk_level`, `risk_explanation`, `ml_prediction`, `confidence_score` (= document score, deterministic proxy — V2 has no model confidence), `human_review_recommended` (true when the doc has `extraction_disagreements` or any `NEEDS_REVIEW` finding), `preview_base64`. Batch gains `analytics` (kpis + charts) and `prediction_interval`.
 - `POST /api/v2/audit/report?format=docx|pdf` — body `{documents: [...], findings: [...], audit_title?}` (the data the frontend already holds; stateless). Returns binary with `Content-Disposition` attachment.
 - `GET /api/v2/audit/eval` — 8-metric grid (`accuracy`, `precision`, `recall`, `f1_score`, `false_positive_rate`, `false_negative_rate`, `average_latency_seconds`, `average_confidence_score`) mapped from the real golden-set baselines `evaluation/baselines/v2.json` (not mock data). If baselines lack a metric, `null` with the gate table included.
 
