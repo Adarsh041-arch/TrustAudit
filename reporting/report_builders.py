@@ -39,8 +39,12 @@ def generate_docx_report(audit_data: Dict[str, Any]) -> bytes:
     style.font.size = Pt(11)
     style.paragraph_format.space_after = Pt(6)
 
+    report_dict = audit_data.get("report", {}) if isinstance(audit_data.get("report"), dict) else {}
+    doc_results = audit_data.get("document_results") or report_dict.get("document_results", [])
+    audit_title = audit_data.get("audit_title") or report_dict.get("audit_title", "TrustAudit Report")
+
     # Title Page / Header
-    title = doc.add_heading(audit_data.get("audit_title", "TrustAudit Report"), level=0)
+    title = doc.add_heading(audit_title, level=0)
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     
     date_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -53,7 +57,7 @@ def generate_docx_report(audit_data: Dict[str, Any]) -> bytes:
     p_exec = doc.add_paragraph()
     p_exec.add_run(
         f"This audit report compiles the compliance findings and risk analytics. "
-        f"A total of {len(audit_data.get('document_results', []))} document(s) were audited. "
+        f"A total of {len(doc_results)} document(s) were audited. "
     )
     
     # Add cross verification notes
@@ -65,7 +69,8 @@ def generate_docx_report(audit_data: Dict[str, Any]) -> bytes:
     # Per-Document Details
     doc.add_heading("2. Detailed Document Compliance & Explainability", level=1)
     
-    for idx, r in enumerate(audit_data.get("document_results", []), 1):
+    for idx, r in enumerate(doc_results, 1):
+
         doc.add_heading(f"2.{idx} File: {r['document_name']}", level=2)
         
         # Risk Card / Overall
@@ -227,14 +232,18 @@ def generate_pdf_report(audit_data: Dict[str, Any]) -> bytes:
         spaceAfter=20
     )
 
+    report_dict = audit_data.get("report", {}) if isinstance(audit_data.get("report"), dict) else {}
+    doc_results = audit_data.get("document_results") or report_dict.get("document_results", [])
+    audit_title = audit_data.get("audit_title") or report_dict.get("audit_title", "TrustAudit Audit Report")
+
     # Document Header
-    story.append(Paragraph(audit_data.get("audit_title", "TrustAudit Audit Report"), title_style))
+    story.append(Paragraph(audit_title, title_style))
     story.append(Paragraph(f"Generated on: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} | Compliance Intelligence Platform", meta_style))
     story.append(Spacer(1, 10))
 
     # Section 1: Executive Summary
     story.append(Paragraph("1. Executive Summary", h1_style))
-    doc_count = len(audit_data.get("document_results", []))
+    doc_count = len(doc_results)
     summary_p = f"This comprehensive compliance review evaluates {doc_count} document(s). "
     cross = audit_data.get("cross_verification", {})
     if cross:
@@ -245,7 +254,8 @@ def generate_pdf_report(audit_data: Dict[str, Any]) -> bytes:
     # Section 2: Detailed Document Findings
     story.append(Paragraph("2. Document Assessments & Risk Scoring", h1_style))
 
-    for idx, r in enumerate(audit_data.get("document_results", []), 1):
+    for idx, r in enumerate(doc_results, 1):
+
         doc_heading = f"2.{idx} File: {r['document_name']} ({r.get('document_type', 'unknown').replace('_', ' ').title()})"
         story.append(Paragraph(doc_heading, h2_style))
         

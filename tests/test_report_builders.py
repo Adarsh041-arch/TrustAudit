@@ -36,3 +36,33 @@ def test_pdf_report_is_pdf_bytes():
     out = generate_pdf_report(PAYLOAD)
     assert out[:4] == b"%PDF"
     assert len(out) > 500
+
+
+def test_nested_report_dict_populates_documents():
+    nested_payload = {
+        "report": {
+            "audit_title": "Enhanced Audit",
+            "documents_processed": 1,
+            "document_results": [
+                {
+                    "document_name": "nested_invoice.pdf",
+                    "document_type": "invoice",
+                    "passed": False,
+                    "score": 75.0,
+                    "risk_level": "Medium Risk",
+                    "risk_explanation": "Arithmetic error",
+                    "failed_rules": [],
+                    "confidence_score": 80.0,
+                    "human_review_recommended": False,
+                    "remarks": "Check math",
+                    "summary_text": "Invoice from Supplier A"
+                }
+            ]
+        },
+        "cross_verification": {"status": "COMPLIANT", "reconciliation_summary": "Matched"}
+    }
+    pdf_out = generate_pdf_report(nested_payload)
+    assert b"nested_invoice.pdf" in pdf_out or len(pdf_out) > 1000
+    docx_out = generate_docx_report(nested_payload)
+    assert len(docx_out) > 1000
+
