@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 from audit_v2.domain.models import DocumentStatus, DocumentType, ExtractedDocument
@@ -111,7 +112,28 @@ def extract_document(
         doc.tenant_id = tenant_id
         return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
     except ValueError as e:
+        vlm_res = _try_vlm_fallback(data, mime_type, document_id, tenant_id)
+        if vlm_res is not None:
+            return vlm_res
         return ExtractionResult(error=str(e))
+
+
+def _try_vlm_fallback(
+    data: bytes, mime_type: str, document_id: str, tenant_id: str,
+) -> ExtractionResult | None:
+    if not os.getenv("NVIDIA_API_KEY"):
+        return None
+    try:
+        from audit_v2.extraction.vlm_extractor import VlmExtractor
+        vlm = VlmExtractor()
+        doc = vlm.extract(data, mime_type)
+        doc.document_id = document_id
+        doc.tenant_id = tenant_id
+        return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
+    except Exception as exc:
+        logger.warning("VLM fallback extraction failed for %s: %s", document_id, exc)
+        return None
+
 
 
 def _raw_text(data: bytes, mime_type: str) -> str:
