@@ -33,9 +33,10 @@ class PolicyRetriever:
                     metadata={"hnsw:space": "cosine"}
                 )
                 self.embeddings = GoogleGenerativeAIEmbeddings(
-                    model="models/embedding-001",
+                    model="models/text-embedding-004",
                     google_api_key=os.getenv("GOOGLE_API_KEY")
                 )
+
             except Exception as e:
                 logger.error(f"Failed to initialize ChromaDB: {e}. Falling back to memory-based retriever.")
                 self.client = None
