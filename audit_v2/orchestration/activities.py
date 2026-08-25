@@ -5,7 +5,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from audit_v2.domain.models import TEXT_DOC_TYPES, DocumentStatus, DocumentType, ExtractedDocument
+from audit_v2.domain.models import TEXT_DOC_TYPES, DocumentStatus, DocumentType, ExtractedDocument, ProvenancedValue
 from audit_v2.extraction.classifier import EXTRACTOR_REGISTRY
 from audit_v2.extraction.merge import merge_extractions
 from audit_v2.extraction.text_extractor import TextExtractor
@@ -233,4 +233,11 @@ def _raw_text(data: bytes, mime_type: str) -> str:
 
 
 def normalize_document(document: ExtractedDocument) -> ExtractedDocument:
+    if document.header.received_date is None:
+        from datetime import date
+        document.header.received_date = ProvenancedValue(
+            value=date.today().isoformat(),
+            raw=date.today().isoformat(),
+            confidence=1.0
+        )
     return document

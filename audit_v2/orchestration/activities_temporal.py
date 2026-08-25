@@ -10,6 +10,7 @@ global set by the worker (`set_activity_store`).
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from dataclasses import dataclass, field
 
 from temporalio import activity
@@ -342,6 +343,7 @@ class ValidateAndEmitInput:
     prompt_version: str
     model_version: str
     document: ExtractedDocument
+    current_date: str | None = None
 
 
 @dataclass
@@ -363,12 +365,30 @@ async def validate_and_emit_activity(
     so the two execution paths cannot drift.
     """
     try:
+        current_date_str = input.current_date
+        if not current_date_str:
+            try:
+                from temporalio import activity as temp_activity
+                scheduled_time = temp_activity.info().current_attempt_scheduled_time
+                if scheduled_time:
+                    current_date_str = scheduled_time.date().isoformat()
+            except Exception:
+                pass
+
+        current_date_val = None
+        if current_date_str:
+            try:
+                current_date_val = datetime.strptime(current_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+
         findings, routing = run_checks_and_emit(
             input.document,
             tenant_policy=input.tenant_policy,
             ruleset_version=input.ruleset_version,
             prompt_version=input.prompt_version,
             model_version=input.model_version,
+            current_date=current_date_val,
         )
         requires_human_review = bool(input.document.extraction_disagreements)
         if requires_human_review:

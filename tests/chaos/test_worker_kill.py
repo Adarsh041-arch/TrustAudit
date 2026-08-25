@@ -57,7 +57,7 @@ from audit_v2.orchestration.temporal_workflow import (
 pytestmark = [pytest.mark.chaos]
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-GOLDEN_PDF = REPO_ROOT / "sample_docs" / "INV-2026-0715_NewTech_Solutions.pdf"
+GOLDEN_PDF = REPO_ROOT / "evaluation" / "golden_set" / "docs" / "INV-2026-0001.pdf"
 
 ACTIVITIES = [
     fetch_document,

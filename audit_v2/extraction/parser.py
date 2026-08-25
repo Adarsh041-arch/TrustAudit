@@ -93,20 +93,40 @@ def parse_date(raw: str) -> date | None:
             except ValueError:
                 pass
 
-    parts = stripped.replace("-", " ").replace("/", " ").split()
+    # Generic smart parsing to resolve MM/DD vs DD/MM ambiguity
+    cleaned = stripped.replace("-", " ").replace("/", " ").replace(".", " ")
+    parts = cleaned.split()
     if len(parts) == 3:
-        day, month_str, year_str = parts
-        month_lower = month_str.lower()[:3]
-        if month_lower in MONTH_NAMES:
+        p1, p2, p3 = parts
+        p2_lower = p2.lower()[:3]
+        if p2_lower in MONTH_NAMES:
             try:
-                day_int = int(day)
-                year_int = int(year_str)
-                if year_int < 100:
-                    year_int += 2000
-                month_int = MONTH_NAMES[month_lower]
-                return date(year_int, month_int, day_int)
-            except (ValueError, IndexError):
+                day_val = int(p1)
+                year_val = int(p3)
+                if year_val < 100:
+                    year_val += 2000
+                return date(year_val, MONTH_NAMES[p2_lower], day_val)
+            except ValueError:
                 pass
+
+        if p1.isdigit() and p2.isdigit() and p3.isdigit():
+            v1, v2, v3 = int(p1), int(p2), int(p3)
+            # Determine year
+            if v3 > 31:  # Year is v3
+                year_val = v3
+                if year_val < 100:
+                    year_val += 2000
+                # Resolve ambiguity
+                if v1 > 12 and v2 <= 12:  # DD/MM/YYYY
+                    return date(year_val, v2, v1)
+                elif v2 > 12 and v1 <= 12:  # MM/DD/YYYY
+                    return date(year_val, v1, v2)
+                elif v1 <= 12 and v2 <= 12:  # Ambiguous, default to DD/MM/YYYY
+                    return date(year_val, v2, v1)
+            elif v1 > 31:  # Year is v1 (YYYY/MM/DD)
+                year_val = v1
+                if v2 <= 12 and v3 <= 31:
+                    return date(year_val, v2, v3)
 
     return None
 

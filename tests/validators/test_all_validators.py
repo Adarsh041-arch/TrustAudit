@@ -332,6 +332,50 @@ class TestTemporal:
         assert temporal.check_expiry_date(
             ctx(d, "CHK-TEMP-EXPIRY-001")).status == FindingStatus.SKIPPED
 
+    def test_expiry_date_with_context_current_date(self):
+        # Expired relative to current_date
+        d = doc(expiry_date=pv("2026-07-15"))
+        ref_date = date(2026, 8, 1)
+        assert temporal.check_expiry_date(
+            ctx(d, "CHK-TEMP-EXPIRY-001", current_date=ref_date)
+        ).status == FindingStatus.FAIL
+
+        # Not expired relative to current_date
+        ref_date_past = date(2026, 6, 1)
+        assert temporal.check_expiry_date(
+            ctx(d, "CHK-TEMP-EXPIRY-001", current_date=ref_date_past)
+        ).status == FindingStatus.PASS
+
+    def test_invoice_date_fallback_to_context_current_date(self):
+        # Invoice date in the future relative to current_date (fallback received_date)
+        d = doc(invoice_date=pv("2026-08-15"))
+        ref_date = date(2026, 8, 1)
+        assert temporal.check_invoice_date(
+            ctx(d, "CHK-TEMP-INVDATE-001", current_date=ref_date)
+        ).status == FindingStatus.FAIL
+
+        # Invoice date not in the future
+        d_past = doc(invoice_date=pv("2026-07-15"))
+        assert temporal.check_invoice_date(
+            ctx(d_past, "CHK-TEMP-INVDATE-001", current_date=ref_date)
+        ).status == FindingStatus.PASS
+
+    @pytest.mark.parametrize(
+        "raw,expected_parsed",
+        [
+            ("15-Jul-2026", date(2026, 7, 15)),
+            ("15/07/2026", date(2026, 7, 15)),
+            ("2026-07-15", date(2026, 7, 15)),
+            ("07/15/2026", date(2026, 7, 15)),  # MM/DD/YYYY format resolved
+            ("07.15.2026", date(2026, 7, 15)),  # Dots as separators
+            ("15.07.2026", date(2026, 7, 15)),  # DD.MM.YYYY format
+            ("08/12/2026", date(2026, 12, 8)),  # Ambiguous, defaults to DD/MM/YYYY
+        ],
+    )
+    def test_date_parser_ambiguity_and_dots(self, raw, expected_parsed):
+        from audit_v2.domain.validators.temporal import _parse_date
+        assert _parse_date(pv(raw)) == expected_parsed
+
 
 class TestReferenceIntegrity:
     def test_po_reference_presence(self):

@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: pip install -e "audit_v2[dev]"
       - name: Ruff lint
-        run: ruff check audit_v2/
+        run: ruff check audit_v2/ reconcile/ tests/recon/ evaluation/evaluate_recon.py generate_recon_batch.py
       - name: MyPy type-check
         run: mypy audit_v2/
 

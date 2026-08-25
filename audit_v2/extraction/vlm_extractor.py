@@ -22,6 +22,7 @@ from audit_v2.domain.models import (
     TaxLine,
 )
 from audit_v2.extraction.base import BaseExtractor
+from audit_v2.extraction.parser import normalize_locale
 from audit_v2.gateway.nvidia_gateway import NvidiaGateway
 
 logger = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ def _pv(val: Any, page: int = 1, confidence: float = 0.85) -> ProvenancedValue |
         return None
     s_val = str(val).strip()
     return ProvenancedValue(
-        value=s_val,
+        value=normalize_locale(s_val, None),
         raw=s_val,
         page=page,
         bbox=None,

@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Callable
+from datetime import date
 from decimal import Decimal
 
 from audit_v2.domain.models import (
@@ -86,6 +87,7 @@ class CheckRunner:
         tenant_tolerances: dict[str, str] | None = None,
         cluster: TransactionCluster | None = None,
         corpus_index: CorpusIndex | None = None,
+        current_date: date | None = None,
     ) -> list[CheckResult]:
         if not VALIDATOR_REGISTRY:
             _import_validators()
@@ -123,6 +125,7 @@ class CheckRunner:
                 tenant_tolerances=tenant_tolerances,
                 cluster=cluster,
                 corpus_index=corpus_index,
+                current_date=current_date,
             )
 
             try:

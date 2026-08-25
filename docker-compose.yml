@@ -32,18 +32,20 @@ services:
       timeout: 5s
       retries: 3
 
-  # Temporal: auto-setup requires different config for v1.31+. Uncomment after fixing.
-  # See .infra/temporal.yaml for persistence config and AGENTS.md for setup steps.
-  #temporal:
-  #  image: temporalio/server:latest
-  #  ports:
-  #    - "7233:7233"
-  #    - "8233:8233"
-  #  volumes:
-  #    - ./.infra/temporal.yaml:/etc/temporal/config/docker.yaml
-  #  depends_on:
-  #    postgres:
-  #      condition: service_healthy
+  temporal:
+    image: temporalio/auto-setup:latest
+    ports:
+      - "7233:7233"
+      - "8233:8233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=audit
+      - POSTGRES_PWD=audit_dev_password
+      - POSTGRES_SEEDS=postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   pgdata:

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from audit_v2.domain.models import DocumentType
-from audit_v2.extraction.vlm_extractor import VlmExtractor
+from audit_v2.extraction.vlm_extractor import VlmExtractor, _pv
 from audit_v2.gateway.vlm_gateway import ModelResponse
 
 
@@ -19,6 +19,28 @@ class TestVlmExtractor:
         ext = VlmExtractor(gateway=MagicMock())
         with pytest.raises(ValueError, match="Unparseable VLM response"):
             ext._clean_and_parse_json("NOT VALID JSON")
+
+    def test_pv_normalizes_thousand_separators(self):
+        """Regression: nemotron emits '525,000.00'; decimal_value must not crash."""
+        ext = VlmExtractor(gateway=MagicMock())
+        data = {
+            "header": {"doc_type": "invoice", "grand_total": "525,000.00"},
+            "line_items": [],
+            "tax_lines": [],
+        }
+        doc = ext._build_document(data, page_count=1)
+        assert doc.header.grand_total is not None
+        assert doc.header.grand_total.value == "525000.00"
+        assert doc.header.grand_total.raw == "525,000.00"
+        assert float(doc.header.grand_total.decimal_value) == 525000.0
+
+    def test_pv_leaves_non_numeric_untouched(self):
+        pv = _pv("Acme Solutions")
+        assert pv is not None
+        assert pv.value == "Acme Solutions"
+        pv_date = _pv("2026-07-15")
+        assert pv_date is not None
+        assert pv_date.value == "2026-07-15"
 
     def test_build_document_structure(self):
         ext = VlmExtractor(gateway=MagicMock())

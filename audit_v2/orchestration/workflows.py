@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 
 from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
@@ -38,6 +39,7 @@ def run_checks_and_emit(
     ruleset_version: str,
     prompt_version: str,
     model_version: str,
+    current_date: date | None = None,
 ):
     """Route the document, run deterministic checks, and emit findings.
 
@@ -77,6 +79,7 @@ def run_checks_and_emit(
         document=normalized,
         included_check_ids=routing_decision.included_check_ids,
         skipped_check_ids=routing_decision.skipped_check_ids,
+        current_date=current_date,
     )
     for cr in check_results:
         entry = by_id.get(cr.check_id)
@@ -106,6 +109,7 @@ class AuditWorkflowInput:
     prompt_version: str = "prompt_v3"
     model_version: str = "gemini-2.5-flash"
     tenant_policy: str = "standard"
+    current_date: date | str | None = None
 
 
 @dataclass
@@ -237,12 +241,25 @@ class AuditWorkflow:
                         failure_class=FailureClass.POLICY,
                     )
 
+                # Resolve current_date
+                current_date_val = None
+                if inp.current_date:
+                    if isinstance(inp.current_date, str):
+                        from datetime import datetime
+                        try:
+                            current_date_val = datetime.strptime(inp.current_date, "%Y-%m-%d").date()
+                        except ValueError:
+                            pass
+                    elif isinstance(inp.current_date, date):
+                        current_date_val = inp.current_date
+
                 stored_findings, routing_decision = run_checks_and_emit(
                     normalized,
                     tenant_policy=inp.tenant_policy,
                     ruleset_version=inp.ruleset_version,
                     prompt_version=inp.prompt_version,
                     model_version=inp.model_version,
+                    current_date=current_date_val,
                 )
 
                 # PHASES_V2 §4 Phase 8: extractor disagreement routes to human

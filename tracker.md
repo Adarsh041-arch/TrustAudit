@@ -3,13 +3,54 @@
 **Project:** Multi-Model Document Audit Agent (V2)
 **Plan source:** `PHASES_V2.md`
 **Started:** 2026-07-25
-**Current build:** 2026-08-02
+**Current build:** 2026-08-23
 **Active milestones:** M0 Foundations ✅ | M1 Thin Slice ✅ | M2 Hardening ✅.
 **Approach:** Vertical Slice (per `AGENTS.md` A10, M1 is deliberately narrow and first)
 
 ---
 
 ## Build Log
+
+### 2026-08-23 (session 6b) — Restored V2 Frontend Dashboard Coexistence
+
+- **V2 Frontend Interface Restoration**:
+  - Restored the feature-complete Audit V2 frontend dashboard by recreating `audit-frontend/src/AppV2.tsx` from commit `2f39c7e`, which was accidentally overwritten by a legacy V1 regression commit.
+  - Linked the V2 app layout to support multi-document batch uploads (port `8100`), 3-way match graphs, cryptographic audit logs, and review queues.
+  
+- **Dual-UI Coexistence (V1 / V2 Switch)**:
+  - Modified `audit-frontend/src/main.tsx` to wrap the frontend in a `Root` component.
+  - Added a floating UI Mode Toggle in the bottom-right corner of the screen, allowing users to switch dynamically between the Legacy V1 frontend and the V2 (Temporal-backed) frontend.
+  - Persisted mode selection to `localStorage` and query parameters (`?mode=v2`) for sticky page reloads.
+
+- **Verification**:
+  - Recompiled the frontend using `npm run build` with 100% type safety and zero bundle errors.
+
+- **Server environment loading**:
+  - Imported and invoked `load_dotenv` inside `audit_v2/server.py` to ensure root `.env` variables (such as `NVIDIA_API_KEY`) are correctly loaded into the FastAPI server process on startup.
+
+### 2026-08-23 (session 6a) — Fixed Date Parsing & Rule R005 Replay Stability
+
+- **Replay Stability / Determinism (`CHK-TEMP-EXPIRY-001`)**:
+  - Integrated `current_date` into `CheckContext` to eliminate non-replay-stable `date.today()` calls inside validators.
+  - Resolved `current_date` inside Temporal workflows/activities by using `current_attempt_scheduled_time` from Temporal's activity info fallback.
+  - Enabled passing `current_date` to `AuditWorkflowInput` and `run_checks_and_emit` to ensure repeatable evaluation runs across arbitrary date thresholds.
+
+- **Smart Date Parsing**:
+  - Rewrote the date parsers in both the domain layer (`temporal.py`) and extraction layer (`parser.py`) to resolve MM/DD vs DD/MM format ambiguity (e.g. `"08/12/2026"` becomes 12th Aug, not 8th Dec) by dynamically evaluating digits.
+  - Added support for dot separators (e.g. `15.07.2026`) to parse European date formats safely.
+
+- **VLM Prompt Leakage Sanitize & Date Comparison refinement**:
+  - Reworked legacy V1 prompt builders in `app/vlm.py` and `explainable_audit.py`, as well as test scripts (`test_nvidia.py`, `test_litert.py`) to sanitize raw document names, stripping out WhatsApp filename date/time templates (e.g. `WhatsApp Image 2026-08-02 at 16.12.16.jpeg`) to prevent the LLM from misinterpreting the time portion (`16.12.16`) as a valid document date.
+  - Passed the explicit `Audit Date` in the VLM prompts so the compliance checker evaluates past/future boundaries relative to the actual audit run time.
+  - Refined the prompt instructions under instruction rules to explicitly walk the model through date comparison math (e.g., explaining that July 2026 is before August 2026, hence 20 July 2026 is in the past relative to 23 August 2026) to prevent LLM reasoning bugs regarding future-dated documents.
+
+- **Missing Received Date Fallback**:
+  - Populated `received_date` inside the `normalize_document` activity with the ingestion date when missing from the document header.
+  - Updated `check_invoice_date` to fall back to `current_date` if `received_date` is absent, allowing chronological checks to fail invoices dated in the future relative to the audit date.
+
+- **Verification**:
+  - Executed full test suite: 419 passed, 0 failed, 16 skipped.
+  - Added unit tests for smart date parsing formats (dots, MM/DD/YYYY, DD/MM/YYYY) and `current_date` context integration in `tests/validators/test_all_validators.py`.
 
 ### 2026-08-02 (session 5i) — Calibrated Policy Severities
 
@@ -471,3 +512,116 @@ Measured on the 200-doc synthetic golden set (`evaluation/baselines/v2.json`, se
 - `docs/superpowers/specs/2026-07-27-m2-5-injection-golden-set-design.md`: design doc.
 - `docs/superpowers/plans/2026-07-27-m2-5-injection-golden-set.md`: implementation plan.
 - **Next:** M3 real/scanned/adversarial document composition.
+
+---
+
+## Session 2026-08-23 - Buildathon recon engine (Phases 1-9)
+
+Implements `docs/buildathon_recon_plan.md` Days 1-5. New top-level `reconcile/` module (imports `audit_v2.domain.models` only; direction allowed by import contracts).
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| R1 | `generate_recon_batch.py` | Synthetic 3-CSV batch generator, seeded; 16 injected breaks (5 fee / 3 missing-bank / 3 drift / 1 currency / 2 dup pairs / 2 orphan bank credits); emits `recon_ground_truth.json` with expected verdicts | done |
+| R2 | `reconcile/models.py` | PayoutRecord / BankEntry / LedgerRecord / MatchResult / ReconciliationRun, all money Decimal; MatchStatus + ExceptionType StrEnums | done |
+| R3 | `reconcile/ingest.py` | CSV -> typed records (paths or upload file objects); bad row raises ValueError with file:line context (never silent) | done |
+| R4 | `reconcile/classifier.py` | Pure rule table assigning ExceptionType or None | done |
+| R5 | `reconcile/matcher.py` | Deterministic 3-way join; dup txn_id flags 2nd+ occurrence; orphan bank credits become MISSING_LEDGER findings outside payout denominator; sha256 decision fingerprints (`recon-rules-1.0.0`) | done |
+| R6 | `tests/recon/` | 32 tests: matcher branches, classifier table, full-batch ground-truth agreement, determinism replay, false-positive-free clean rows, explainer (stub gateway), reporter (zip/pdf magic), API roundtrip via TestClient | done |
+| R7 | `.gitignore` | Added `data/recon/` | done |
+| R8 | `reconcile/explainer.py` | explain_exception / summarize_run via NvidiaGateway; structured prompts only (no raw CSV text); failures degrade to None + warning, never touch verdicts; populate_explanations fills run in place | done |
+| R9 | `reconcile/reporter.py` | DOCX + PDF recon report: match-rate banner, labelled AI summary, exception table with AI column, per-row source drilldown, fingerprint/tolerance footer | done |
+| R10 | `reconcile/api.py` mounted in `audit_v2/server.py` | POST /api/recon/run (3 CSV multipart), GET /results/{run_id}, POST /report?format=docx|pdf, GET /health; in-memory session cache; 422 on malformed rows | done |
+| R11 | `audit-frontend/src/api/recon.ts`, `sections/ReconciliationSection.tsx`, tab in `AppV2.tsx` | Match-rate banner, 3-file upload + run button, filterable exception table, click-to-expand side-by-side drilldown, PDF/DOCX download, honest "AI unavailable" fallback when key missing | done |
+| R12 | `evaluation/evaluate_recon.py` | Ground-truth scorecard CLI: engine vs manifest, FP/FN counts, fee/drift/orphan tallies, exit code | done |
+
+**Verified:** `evaluate_recon.py --batch data/recon/` -> Engine MATCHED **94/100 (94%)**, fee-tolerance matches 5/5, drift-tolerated 3/3, orphans 2/2, FP=0, FN=0 -> PASS (100% ground truth agreement). Without the Rs.100 fee tolerance the rate would be 89% - the pitch's failure-recovery story holds. 32/32 recon tests pass; ruff clean on all new files; `tsc --noEmit` and `vite build` clean for the frontend.
+
+Import-linter: reconcile -> audit_v2 is in an allowed direction (contracts untouched). The one BROKEN contract (`backend/server_v2` importing audit_v2, 19 imports) is pre-existing and unrelated. Full pytest suite: 436 passed; `tests/test_golden_set_eval.py::test_seeded_defects_are_detected_without_false_alarms` flakes under full-suite load but passes in isolation (pre-existing).
+
+**Buildathon plan status:** Phases 1-9 complete except demo/pitch polish. Known gaps live in `shortcomings.md` section 19.
+
+---
+
+## Session 2026-08-23 (cont.) - Cash forecasting module
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| F1 | `reconcile/forecast.py` | `project_cash()`: weekly ISO buckets over recon verdicts; lanes = settled / in-transit / expected / at-risk; overdue MISSING_BANK_CREDIT rows (eta <= as_of) go to at-risk, future ones stay in-transit; median settlement lag derived from matched rows with labelled fallback (2d) | done |
+| F2 | `reconcile/explainer.py` | `summarize_forecast()` - LLM one-liner citing computed figures + at-risk/in-transit txn IDs; read-only, never computes numbers | done |
+| F3 | `reconcile/api.py` | GET `/api/recon/results/{run_id}/forecast` (computed from cached run; LLM sentence only when key present); removed dead `_decode` helper | done |
+| F4 | `audit-frontend/src/api/recon.ts`, `ReconciliationSection.tsx` | Projected Cash Position card: CSS stacked bars per week, lane totals legend, lag-source badge (derived vs fallback estimate), AI line labelled | done |
+| F5 | `tests/recon/test_forecast.py`, API test | 7 forecast unit tests (bucketing, lanes, median/fallback, dedup, orphans) + endpoint shape test; 41 total recon tests green | done |
+
+**Verified on demo batch (as-of 2026-08-23):** settled INR 4.18Cr over past weeks; expected 32.2L week of Aug 24; at-risk 20.6L from TXN1001/TXN1050/TXN1070 (overdue MISSING_BANK_CREDIT); lag 0d derived. `tsc` + `vite build` clean; ruff clean.
+
+---
+
+## Session 2026-08-23 (cont.) - Risk column + Ask AI
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| K1 | `reconcile/models.py`, `matcher.py` | `MatchResult.risk_level` (reuses audit_v2 Severity); `assess_risk()`: base by exception type, bumped one level at MATERIALITY_THRESHOLD (5L); applied post-pass in reconcile() | done |
+| K2 | `reconcile/explainer.py` | `answer_question(run, txn_id, question)`: facts-only prompt (all source rows + verdict + run totals), user text wrapped as untrusted `<question>` data with injection guard; 500-char cap enforced at API | done |
+| K3 | `reconcile/api.py` | POST `/api/recon/results/{run_id}/ask`; 404/422/503/502 gates; fast-fail gateway (30s, no retries) | done |
+| K4 | `audit-frontend/src/api/recon.ts`, `ReconciliationSection.tsx` | Risk chip column (critical/high/medium/low styling) in exception table; Ask AI panel in drilldown: per-row Q/A thread history, Enter-to-send, honest error copy when key missing | done |
+| K5 | tests | risk assignment (LOW dup / HIGH small missing / CRITICAL materiality bump), prompt-content + unknown-txn explainer tests, API ask gates incl. stubbed-gateway happy path - 45 recon tests total | done |
+
+**Verified:** demo batch risk spread = 3 critical (missing credits), 2 high (orphans), 1 medium currency, 1 low + 1 medium (materiality-bumped duplicate). 45/45 pass; ruff/tsc/vite build clean.
+
+**Prompt quality fix (same session):** `answer_question` now computes derived indicators in code (days since payout, batch-typical settlement lag, OVERDUE flag with grace period) so the model reasons over facts instead of reciting fields; answer style = direct verdict first, figures woven in, inference labelled. Live check on TXN1001: "is it lost?" -> "Unlikely... issued 52 days ago vs same-day norm, treat as stuck"; "contact bank?" -> "Likely." New constant DATE_GRACE_DAYS=3.
+
+**UI change (same session):** Ask AI moved out of the drilldown into a right-side slide-over chat panel (overlay + fixed aside, per-txn thread history preserved, Enter-to-send, busy/error states). Drilldown keeps only the Ask AI button + disclaimer. `tsc`/`vite build` clean.
+
+---
+
+## Session 2026-08-23 (cont.) - Model routing fix, Demo/Live mode, polish
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| M1 | diagnosis | NVIDIA outage chain: DiffusionGemma hung (read timeouts) -> switched NVIDIA_MODEL to llama-3.1-8b -> extraction then 500'd (llama is TEXT-ONLY, cannot take image parts). When DiffusionGemma returned it answered images fine but returns `"content": ""` for image-free prompts. Conclusion: two models are genuinely required. | done |
+| M2 | `reconcile/explainer.py`, `.env` | `make_text_gateway()` - recon text calls use `NVIDIA_TEXT_MODEL` env or default llama-3.1-8b-instruct; vision/extraction keeps gateway default (DiffusionGemma). Wired into all 3 recon LLM sites; API test re-targeted to patch explainer's symbol | done |
+| M3 | layout | Run Reconciliation row now `flex-wrap items-end` - button wraps instead of overflowing the card | done |
+| G1-G6 | Demo/Live mode | see previous entry: conditional ground-truth validation, schema-gated truth files, mode chips in UI/report/CLI | done |
+| P1 | `reconcile/reporter.py` | DOCX header gains MODE line + ground-truth validation strip (PDF parity) | done |
+| P2 | `.github/workflows/ci.yml` | Ruff job now lints `reconcile/ tests/recon/ evaluation/evaluate_recon.py generate_recon_batch.py` | done |
+
+**Verified:** live Ask AI on TXN1001 via new routing -> "Unlikely... issued 52 days ago vs same-day norm" (llama); vision extraction reads a synthetic invoice correctly via DiffusionGemma through NvidiaGateway. Full pytest: **484 passed**, 9 skipped, 1 pre-existing flake (`test_golden_set_eval`, passes isolated). Ruff/tsc/vite build clean.
+
+---
+
+## Session 2026-08-23 (cont.) - Demo/Live mode with conditional ground-truth validation
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| G1 | `reconcile/validation.py`, `models.py` | `parse_ground_truth()` schema gate (JSON shape, positive total_records, breaks list with known types only) + `validate_run()` computing detected/total, fee & drift confirmations, FP/FN lists - never trusts a truth file's own "expected" block; ReconciliationRun gains `mode`/`validation`/`mode_note` | done |
+| G2 | `reconcile/api.py` | Optional 4th upload field `ground_truth`; valid -> demo mode + validation report; malformed -> run proceeds in live mode with explicit "ignored" note; absent -> live mode, no validation line | done |
+| G3 | `reconcile/reporter.py` | PDF/DOCX header shows MODE; demo adds ground-truth validation line (PASS/FAIL colored) | done |
+| G4 | `evaluation/evaluate_recon.py` | Refactored onto shared validate_run (single source of truth); rejects invalid truth files with exit 2 instead of inventing numbers | done |
+| G5 | Frontend | 4th optional file input ("Ground Truth JSON - optional, enables Demo Mode"); mode chip above match-rate banner (DEMO validated / LIVE unverified); conditional validation strip (X/X breaks, FPs listed) or honest "No ground truth available" note | done |
+| G6 | tests | test_validation.py: schema acceptance/rejection matrix, full agreement on seeded batch (8/8, 5/5, 3/3), tampered truth yields FN not crash, live default; API: demo/live/malformed-truth roundtrips. 58 recon tests green | done |
+
+**Verified:** seeded batch via API with truth file -> mode=demo, validation {8/8, 5/5 fee, 3/3 drift, passed}; without -> live + no validation; garbage JSON as truth -> HTTP 200, live mode, note "Ground-truth file ... ignored: not valid JSON". Eval CLI unchanged output (94/100 PASS).
+
+---
+
+## Session 2026-08-23 (cont.) - VLM model switched to Nemotron 3 Nano Omni
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| V1 | .env | Added NVIDIA_MODEL + GEMINI_MODEL = 
+vidia/nemotron-3-nano-omni-30b-a3b-reasoning. No code change: NvidiaGateway already read NVIDIA_MODEL (
+vidia_gateway.py:37); V1 get_vlm_client() reads GEMINI_MODEL (pp/vlm.py:394). Replaces broken DiffusionGemma default (returned empty content on text-only prompts) | done |
+
+**Verified:** vision via real NvidiaGateway.extract reads a generated invoice image correctly ({"invoice_number": "12345", "total": "99.00"}, 761 completion tokens, ~10.3s latency, survived a transient 503 via built-in retry). V1 get_vlm_client() text call returns 'OK'. Note: NVIDIA API was intermittently returning spurious 401s during testing while GET /v1/models stayed authorized; inference recovered on retry - free-tier flakiness, not key/model config.
+
+---
+
+## Session 2026-08-23 (cont.) - Fix upload 500 on comma-formatted grand_total
+
+| Step | File(s) | Action | Status |
+|------|---------|--------|--------|
+| F1 | udit_v2/extraction/vlm_extractor.py | Root cause: _pv stored VLM output verbatim as alue; nemotron emits "525,000.00" -> ProvenancedValue.decimal_value raised -> server.py:279 500'd the upload. Fix: _pv now normalizes via existing 
+ormalize_locale(s_val, None) (value="525000.00", raw preserved). Covers vlm_extractor AND text_doc_extractor (imports the same _pv); regex extractors already used parse_amount | done |
+| F2 | 	ests/test_vlm_extractor.py | Regression tests: comma grand_total normalized + decimal_value parses; non-numeric strings pass through untouched | done |
+
+**Verified:** 409+16skipped core (11s), 58 recon, 3 chaos, 9 server_v2 incl. all three live-upload tests against real nemotron API (163s total - reasoning-model latency, see shortcomings 20). Ruff clean.

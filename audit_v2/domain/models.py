@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -325,6 +325,7 @@ class CheckContext(BaseModel):
     # that need it SKIP with an explicit reason when absent.
     cluster: TransactionCluster | None = None
     corpus_index: CorpusIndex | None = None
+    current_date: date | None = None
 
     def tolerance_for(self, check_id: str) -> Decimal:
         if check_id in self.tenant_tolerances:

@@ -29,3 +29,5 @@ sample_docs/RS*.pdf
 htmlcov/
 *.egg-info/
 .superpowers/
+
+data/recon/

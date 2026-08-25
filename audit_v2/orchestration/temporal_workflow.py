@@ -62,6 +62,7 @@ class AuditWorkflowInput:
     prompt_version: str = "prompt_v3"
     model_version: str = "gemini-2.5-flash"
     tenant_policy: str = "standard"
+    current_date: str | None = None
 
 
 @dataclass
@@ -283,6 +284,7 @@ class AuditDocumentWorkflow:
                 prompt_version=inp.prompt_version,
                 model_version=inp.model_version,
                 document=extract_result.document,
+                current_date=inp.current_date,
             ),
             retry_policy=_RETRY_TRANSIENT,
             start_to_close_timeout=_ACTIVITY_TIMEOUT,

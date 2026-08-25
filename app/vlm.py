@@ -271,11 +271,19 @@ class VLMClient:
             for r in checklist.rules
         )
 
+        import re
+        sanitized_name = summary.document_name
+        sanitized_name = re.sub(r'\d{4}-\d{2}-\d{2}\s+at\s+\d{2}\.\d{2}\.\d{2}', '', sanitized_name)
+        sanitized_name = re.sub(r'WhatsApp\s+Image\s*', '', sanitized_name, flags=re.IGNORECASE)
+        sanitized_name = sanitized_name.strip()
+        if not sanitized_name or sanitized_name.startswith('.'):
+            sanitized_name = "document" + sanitized_name
+
         today = datetime.date.today()
         prompt = (
             "You are an audit compliance agent. Your task is to audit a business document "
             "against a compliance checklist.\n\n"
-            f"Document: {summary.document_name}\n"
+            f"Document: {sanitized_name}\n"
             f"Type: {summary.document_type}\n"
             f"Summary: {summary.summary}\n"
             f"Audit Date: {today.isoformat()}\n\n"
@@ -299,13 +307,13 @@ class VLMClient:
             "      - Verify grand total = subtotal + tax − discounts\n"
             "   c. Report EVERY arithmetic discrepancy — even $0.01 — with the exact numbers.\n"
             "      If all arithmetic is correct, do NOT report R003 as a failure.\n\n"
-            "4. For each remaining rule (excluding R003 which was handled above), decide "
-            "COMPLY or NOT COMPLY:\n"
+            "4. DATE VALIDITY & FUTURE DATES (Rule R005) - Compare the document date to the Audit Date. A document is ONLY future-dated if its date is strictly after the Audit Date (document_date > Audit Date). If document_date <= Audit Date, the document is NOT in the future, even if the year is 2026. For example: July 2026 is BEFORE August 2026, so a document dated 20 July 2026 is in the PAST relative to the Audit Date 2026-08-23, and it complies with R005.\n\n"
+            "5. For each remaining rule (excluding R003 and R005 which are handled above), decide COMPLY or NOT COMPLY:\n"
             '   - COMPLY: The document clearly satisfies the rule. Specific evidence is visible.\n'
             '   - NOT COMPLY: The document violates the rule, or required information is clearly '
             "missing from the document. If the document type does not require a given rule "
             "(e.g., signature rule on a simple receipt), treat it as COMPLY.\n"
-            "5. Only report rules that are NOT COMPLY in the failed_rules list.\n"
+            "6. Only report rules that are NOT COMPLY in the failed_rules list.\n"
             "   Rules that COMPLY must be omitted from failed_rules.\n\n"
             'Return ONLY valid JSON with these fields:\n'
             '- "passed": boolean — true ONLY if ALL mandatory rules comply. '

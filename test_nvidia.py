@@ -142,11 +142,21 @@ def main():
             f"{'mandatory' if r['mandatory'] else 'optional'}): {r['description']}"
             for r in rules
         )
+        import datetime
+        today_str = datetime.date.today().isoformat()
+        sanitized_doc_name = doc_name
+        sanitized_doc_name = re.sub(r'\d{4}-\d{2}-\d{2}\s+at\s+\d{2}\.\d{2}\.\d{2}', '', sanitized_doc_name)
+        sanitized_doc_name = re.sub(r'WhatsApp\s+Image\s*', '', sanitized_doc_name, flags=re.IGNORECASE)
+        sanitized_doc_name = sanitized_doc_name.strip()
+        if not sanitized_doc_name or sanitized_doc_name.startswith('.'):
+            sanitized_doc_name = "document" + sanitized_doc_name
+
         content = [{"type": "text", "text": (
             "You are an audit compliance agent. Audit this document against the checklist.\n\n"
-            f"Document: {doc_name}\n"
+            f"Document: {sanitized_doc_name}\n"
             f"Type: {summary_data.get('document_type', 'unknown')}\n"
-            f"Summary: {summary_data.get('summary', '')}\n\n"
+            f"Summary: {summary_data.get('summary', '')}\n"
+            f"Audit Date: {today_str}\n\n"
             f"Checklist:\n{rules_lines}\n\n"
             'Return ONLY JSON: {"passed": bool, "score": 0-100, "failed_rules": [{"rule_id": "...", "evidence": "...", "page_number": null}], "remarks": "..."}'
         )}] + image_parts

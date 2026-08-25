@@ -68,9 +68,17 @@ class ComplianceAuditEngine:
         content = VLMContentBuilder.build(file_path)
         today = datetime.date.today().isoformat()
         
+        import re
+        sanitized_doc_name = doc_name
+        sanitized_doc_name = re.sub(r'\d{4}-\d{2}-\d{2}\s+at\s+\d{2}\.\d{2}\.\d{2}', '', sanitized_doc_name)
+        sanitized_doc_name = re.sub(r'WhatsApp\s+Image\s*', '', sanitized_doc_name, flags=re.IGNORECASE)
+        sanitized_doc_name = sanitized_doc_name.strip()
+        if not sanitized_doc_name or sanitized_doc_name.startswith('.'):
+            sanitized_doc_name = "document" + sanitized_doc_name
+
         prompt = (
             "You are an expert compliance officer and auditor. Audit the document image(s) below.\n\n"
-            f"Document Filename: {doc_name}\n"
+            f"Document Filename: {sanitized_doc_name}\n"
             f"Document Type: {inferred_type or summary.document_type}\n"
             f"Document Summary: {summary.summary}\n"
             f"Audit Date: {today}\n\n"
@@ -82,8 +90,9 @@ class ComplianceAuditEngine:
             "   - Core Financial Integrity (R003: Math Accuracy, R005: Future/Invalid Dates, R006: Currency/Amount Consistency) are HIGH / CRITICAL severity.\n"
             "   - Document-Dependent Fields (R001: Legibility, R002: Fields, R004: Signatures/Stamps, R007: Vendor Address/IDs, R010: Tax Breakdown) are MEDIUM or LOW severity because requirements vary by document format (e.g. computer invoices or point-of-sale receipts often omit physical stamps or secondary addresses).\n"
             "3. Recalculate line totals (qty x price), subtotal, tax splits, and grand totals under R003. Flag any math errors.\n"
-            "4. For every rule that fails, create a highly descriptive explainable violation block. Do NOT report rules that are complied with.\n"
-            "5. For each violation, produce:\n"
+            "4. DATE VALIDITY & FUTURE DATES (Rule R005) - Compare the document date to the Audit Date. A document is ONLY future-dated if its date is strictly after the Audit Date (document_date > Audit Date). If document_date <= Audit Date, the document is NOT in the future, even if the year is 2026. For example: July 2026 is BEFORE August 2026, so a document dated 20 July 2026 is in the PAST relative to the Audit Date 2026-08-23, and it complies with R005.\n"
+            "5. For every rule that fails, create a highly descriptive explainable violation block. Do NOT report rules that are complied with.\n"
+            "6. For each violation, produce:\n"
             "   - 'rule_id': e.g. 'R003'\n"
             "   - 'finding': A short summary of the violation\n"
             "   - 'evidence': Specific text, numerical values, or missing field in the document\n"

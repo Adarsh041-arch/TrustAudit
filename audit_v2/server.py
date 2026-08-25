@@ -14,6 +14,10 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi import Response as FastAPIResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -112,6 +116,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Buildathon recon engine (docs/buildathon_recon_plan.md Phase 7)
+from reconcile.api import router as recon_router  # noqa: E402
+
+app.include_router(recon_router)
+
 
 # In-memory storage engines for API service session
 AUDIT_LOG = AuditLog()
