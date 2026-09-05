@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import pytest
-
 from audit_v2.domain.models import DocumentType
 from audit_v2.extraction.classifier import (
     EXTRACTOR_REGISTRY,
     classify_document,
+    classify_document_detailed,
     classify_document_from_data,
 )
 
@@ -37,11 +36,55 @@ class TestClassifyDocument:
 
     def test_classify_empty_returns_low_confidence(self):
         result, conf = classify_document("")
+        assert result == DocumentType.UNKNOWN
         assert conf < 0.5
+
+    def test_certificate_title_beats_incidental_invoice_number(self):
+        text = (
+            "CERTIFICATE OF ORIGIN (Non-Preferential)\n"
+            "Certificate No. COO-2026-217\nExporter ABC Agro Exports\n"
+            "Consignee Green Valley Foods\nHS Code 10063020\nInvoice No. INV-2026-453"
+        )
+        decision = classify_document_detailed(text, method="glm_ocr_transcription")
+        assert decision.doc_type == DocumentType.CERTIFICATE_OF_ORIGIN
+        assert decision.status.value == "CONFIRMED"
+        assert decision.method == "glm_ocr_transcription"
+        assert any(
+            item.text.upper() == "CERTIFICATE OF ORIGIN"
+            for item in decision.evidence
+        )
+
+    def test_invoice_masthead_beats_referenced_po_and_contract(self):
+        decision = classify_document_detailed(
+            """COMMERCIAL INVOICE
+Invoice No. INV-2026-453
+Purchase Order PO-2026-118
+Sales Contract SC-2026-118"""
+        )
+        assert decision.doc_type == DocumentType.INVOICE
+        assert decision.status.value == "CONFIRMED"
+
+    def test_sales_contract_masthead_beats_incidental_invoice_terms(self):
+        decision = classify_document_detailed(
+            """INTERNATIONAL SALES CONTRACT
+Contract No. SC-2026-118
+Seller shall provide Commercial Invoice and Packing List."""
+        )
+        assert decision.doc_type == DocumentType.CONTRACT
+        assert decision.status.value == "CONFIRMED"
+
+    def test_proforma_invoice_preserves_contract_family_routing(self):
+        decision = classify_document_detailed(
+            """| PROFORMA INVOICE |
+| Proforma Invoice No. | PI-2026-453 |
+| Reference PO | PO-2026-118 |"""
+        )
+        assert decision.doc_type == DocumentType.CONTRACT
+        assert decision.status.value == "CONFIRMED"
 
     def test_classify_ambiguous_returns_low_confidence(self):
         text = "Some random document with no clear type indicators"
-        result, conf = classify_document(text)
+        _result, conf = classify_document(text)
         assert conf < 0.5
 
     def test_classify_from_data_with_text_mime(self):

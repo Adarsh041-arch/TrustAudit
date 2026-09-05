@@ -10,13 +10,15 @@ global set by the worker (`set_activity_store`).
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from contextlib import suppress
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from temporalio import activity
 
 from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
 from audit_v2.domain.models import (
+    ClassificationStatus,
     DocumentStatus,
     ExtractedDocument,
     FailureClass,
@@ -216,7 +218,7 @@ class ClassifyInput:
 
 @dataclass
 class ClassifyResult:
-    doc_type: str = "invoice"
+    doc_type: str = "unknown"
     confidence: float = 0.0
     error: str | None = None
 
@@ -377,10 +379,8 @@ async def validate_and_emit_activity(
 
         current_date_val = None
         if current_date_str:
-            try:
+            with suppress(ValueError):
                 current_date_val = datetime.strptime(current_date_str, "%Y-%m-%d").date()
-            except ValueError:
-                pass
 
         findings, routing = run_checks_and_emit(
             input.document,
@@ -390,15 +390,19 @@ async def validate_and_emit_activity(
             model_version=input.model_version,
             current_date=current_date_val,
         )
-        requires_human_review = bool(input.document.extraction_disagreements)
-        if requires_human_review:
+        requires_human_review = bool(
+            input.document.extraction_disagreements
+            or input.document.grounding_rejections
+            or input.document.classification_status != ClassificationStatus.CONFIRMED
+        )
+        if input.document.extraction_disagreements:
             adjudication = Adjudicator().adjudicate(AdjudicationRequest(
                 document_id=input.document.document_id,
                 tenant_id=input.document.tenant_id,
                 deterministic_findings=findings,
                 extraction_disagreements=input.document.extraction_disagreements,
             ))
-            requires_human_review = adjudication.requires_human_review
+            requires_human_review = requires_human_review or adjudication.requires_human_review
         return ValidateAndEmitResult(
             findings=findings,
             routing_rule_id=routing.rule_id,

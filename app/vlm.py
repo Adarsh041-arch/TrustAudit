@@ -2,9 +2,10 @@ import base64
 import datetime
 import json
 import os
-from io import BytesIO
+import tempfile
 from functools import lru_cache
-from typing import Optional
+from io import BytesIO
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,18 +20,18 @@ import sys
 sys.modules.setdefault("transformers", None)
 
 import fitz
-from PIL import Image
 from langchain_core.messages import HumanMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_ollama import ChatOllama
+from PIL import Image
 
+from app.logger import logger
 from app.schemas import (
     AuditChecklist,
     DocumentAuditResult,
     DocumentSummary,
     FailedChecklistItem,
 )
-from app.logger import logger
 
 SUPPORTED_IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"})
 MAX_PDF_PAGES = 10
@@ -148,9 +149,14 @@ class VLMClient:
     def __init__(
         self,
         model_name: str = "gemini-2.5-flash",
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         provider: str = "google",
     ):
+        self.model = None
+        self._provider = provider
+        self._model_name = model_name
+        self._litert_engine = None
+
         if provider == "ollama":
             self.model = ChatOllama(
                 model=model_name,
@@ -167,6 +173,8 @@ class VLMClient:
                 temperature=0.1,
                 max_tokens=16384,
             )
+        elif provider in {"litert", "litert_lm"}:
+            pass  # LiteRT engine is lazily initialized in _invoke_litert
         else:
             self.model = ChatGoogleGenerativeAI(
                 model=model_name,
@@ -174,7 +182,6 @@ class VLMClient:
                 temperature=0.1,
                 max_output_tokens=16384,
             )
-        self._provider = provider
 
     # ------------------------------------------------------------------
     # Document summarization
@@ -351,10 +358,20 @@ class VLMClient:
     # Internal helpers
     # ------------------------------------------------------------------
     def _invoke(self, content: list) -> str:
-        msg = HumanMessage(content=content)
         provider = getattr(self, "_provider", "google")
-        logger.info("  [VLM] Calling %s ...", {"ollama": "Ollama", "nvidia": "NVIDIA API"}.get(provider, "Gemini API"))
+        logger.info(
+            "  [VLM] Calling %s ...",
+            {
+                "ollama": "Ollama",
+                "nvidia": "NVIDIA API",
+                "litert": "LiteRT-LM Engine",
+                "litert_lm": "LiteRT-LM Engine",
+            }.get(provider, "Gemini API"),
+        )
         try:
+            if provider in {"litert", "litert_lm"}:
+                return self._invoke_litert(content)
+            msg = HumanMessage(content=content)
             resp = self.model.invoke([msg])
             response_len = len(resp.content) if resp.content else 0
             logger.info("  [VLM] API responded (%d chars)", response_len)
@@ -362,6 +379,76 @@ class VLMClient:
         except Exception as exc:
             logger.info("  [VLM] API call failed: %s", exc)
             return json.dumps({"error": str(exc)})
+
+    def _invoke_litert(self, content: list) -> str:
+        import litert_lm
+
+        model_path = self._model_name
+        default_path = r"C:\Users\EDITH\.litert-lm\cache\huggingface\litert-community\gemma-4-E2B-it-litert-lm\gemma-4-E2B-it.litertlm"
+        if not model_path or not os.path.exists(model_path):
+            model_path = os.getenv("LITERT_MODEL_PATH", default_path)
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"LiteRT model binary not found at path: {model_path}")
+
+        if self._litert_engine is None:
+            litert_lm.set_min_log_severity(litert_lm.LogSeverity.ERROR)
+            self._litert_engine = litert_lm.Engine(
+                model_path=model_path,
+                backend=litert_lm.Backend.GPU(),
+                vision_backend=litert_lm.Backend.GPU(),
+                audio_backend=litert_lm.Backend.CPU(),
+                enable_speculative_decoding=True,
+            )
+            self._litert_engine.__enter__()
+
+        system_prompt = (
+            "You are an audit compliance assistant. Analyze the provided document image(s) "
+            "and text, and respond ONLY with valid JSON matching the requested schema."
+        )
+
+        conv = self._litert_engine.create_conversation(
+            messages=[litert_lm.Message.system(system_prompt)]
+        )
+        conv.__enter__()
+
+        temp_files = []
+        content_items = []
+        try:
+            for item in content:
+                if isinstance(item, dict):
+                    if item.get("type") == "text":
+                        content_items.append(item.get("text", ""))
+                    elif item.get("type") == "image_url":
+                        url = item.get("image_url", {}).get("url", "")
+                        if url.startswith("data:"):
+                            _, b64_data = url.split(",", 1)
+                            img_bytes = base64.b64decode(b64_data)
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                                tmp.write(img_bytes)
+                            temp_files.append(tmp.name)
+                            content_items.append(litert_lm.Content.ImageFile(absolute_path=tmp.name))
+                        elif os.path.exists(url):
+                            content_items.append(litert_lm.Content.ImageFile(absolute_path=url))
+
+            multimodal_prompt = litert_lm.Contents.of(*content_items)
+
+            full_text = ""
+            stream = conv.send_message_async(multimodal_prompt)
+            for chunk in stream:
+                for part in chunk.get("content", []):
+                    if part.get("type") == "text":
+                        full_text += part.get("text", "")
+
+            logger.info("  [VLM] LiteRT-LM responded (%d chars)", len(full_text))
+            return full_text
+        finally:
+            conv.__exit__(None, None, None)
+            for tmp_path in temp_files:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
 
     @staticmethod
     def _parse_json(raw: str, fallback: dict) -> dict:
@@ -377,19 +464,22 @@ class VLMClient:
             return fallback
 
 
-_client: Optional[VLMClient] = None
+_client: VLMClient | None = None
 
 
 def get_vlm_client(
-    model_name: Optional[str] = None,
-    api_key: Optional[str] = None,
+    model_name: str | None = None,
+    api_key: str | None = None,
 ) -> VLMClient:
     global _client
     if _client is None:
         provider = os.getenv("LLM_PROVIDER", "google")
+        default_model_path = r"C:\Users\EDITH\.litert-lm\cache\huggingface\litert-community\gemma-4-E2B-it-litert-lm\gemma-4-E2B-it.litertlm"
         default_model = {
             "ollama": "gemma4:31b-cloud",
             "nvidia": "google/diffusiongemma-26b-a4b-it",
+            "litert": os.getenv("LITERT_MODEL_PATH", default_model_path),
+            "litert_lm": os.getenv("LITERT_MODEL_PATH", default_model_path),
         }.get(provider, "gemini-2.5-flash")
         resolved = model_name or os.getenv("GEMINI_MODEL", default_model)
         _client = VLMClient(model_name=resolved, api_key=api_key, provider=provider)

@@ -2,7 +2,6 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-import requests
 
 from audit_v2.gateway.nvidia_gateway import DEFAULT_MODEL, NvidiaGateway
 
@@ -64,18 +63,63 @@ class TestNvidiaGateway:
         assert "[REDACTED_BANK_ACCOUNT]" in clean_text
         assert "[REDACTED_IFSC]" in clean_text
 
+    @patch("audit_v2.gateway.nvidia_gateway.time.sleep")
     @patch("audit_v2.gateway.nvidia_gateway.requests.post")
-    def test_retry_on_failure(self, mock_post):
+    def test_retry_on_transient_error(self, mock_post, _mock_sleep):
+        # 503 (worker saturation) is transient — retry then succeed.
         mock_err = MagicMock()
-        mock_err.raise_for_status.side_effect = requests.RequestException("API timeout")
+        mock_err.status_code = 503
+        mock_err.text = "ResourceExhausted: Worker local total request limit reached (16/16)"
+        mock_err.headers = {}
         mock_ok = MagicMock()
         mock_ok.status_code = 200
+        mock_ok.ok = True
         mock_ok.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
 
-        # Fail once, then succeed
         mock_post.side_effect = [mock_err, mock_ok]
 
         gw = NvidiaGateway(api_key="test-key", max_retries=1)
         res = gw.extract(images=[b"img"], prompt="Extract", tenant_id="t1")
         assert res.content == "{}"
         assert mock_post.call_count == 2
+
+    @patch("audit_v2.gateway.nvidia_gateway.time.sleep")
+    @patch("audit_v2.gateway.nvidia_gateway.requests.post")
+    def test_no_retry_on_client_error(self, mock_post, _mock_sleep):
+        # 400/401/404 will never succeed on retry — fail fast, one call only.
+        mock_bad = MagicMock()
+        mock_bad.status_code = 404
+        mock_bad.text = '{"detail": "Function not found for account ..."}'
+        mock_post.return_value = mock_bad
+
+        gw = NvidiaGateway(api_key="test-key", model="does/not-exist", max_retries=4)
+        with pytest.raises(RuntimeError, match="HTTP 404"):
+            gw.extract(images=[b"img"], prompt="Extract", tenant_id="t1")
+        assert mock_post.call_count == 1
+
+    def test_defaults_are_interactive_and_single_image(self, monkeypatch):
+        # Env-tunable knobs fall back to interactive-friendly defaults: a bounded
+        # retry budget (~3x60s) and a single image (llama-3.2 vision's limit).
+        for var in ("NVIDIA_TIMEOUT", "NVIDIA_MAX_RETRIES", "NVIDIA_MAX_IMAGES"):
+            monkeypatch.delenv(var, raising=False)
+        gw = NvidiaGateway(api_key="k")
+        assert gw.timeout == 60
+        assert gw.max_retries == 2
+        assert gw.max_images == 1
+
+    @patch("audit_v2.gateway.nvidia_gateway.requests.post")
+    def test_truncates_images_beyond_model_limit(self, mock_post):
+        # Multi-page docs must not 400 out on a single-image model: send the
+        # first page image only (the rest are logged as dropped).
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.ok = True
+        mock_resp.json.return_value = {"choices": [{"message": {"content": "{}"}}]}
+        mock_post.return_value = mock_resp
+
+        gw = NvidiaGateway(api_key="test-key", max_images=1)
+        gw.extract(images=[b"page1", b"page2", b"page3"], prompt="Extract", tenant_id="t1")
+
+        content = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        image_parts = [p for p in content if p.get("type") == "image_url"]
+        assert len(image_parts) == 1

@@ -250,6 +250,39 @@ checks:
     requires_human_review: false
 
   # ─── Format / Completeness (5 checks, 4 deterministic + 1 model_assisted) ───
+  - check_id: CHK-CERT-MANDATORY-001
+    title: Certificate identity, parties, and goods are present
+    category: format_completeness
+    applies_to: [certificate_of_origin]
+    severity: critical
+    determinism: deterministic
+    inputs: [certificate_number, certificate_date, exporter_name, consignee_name, goods]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Certificate is missing required fields"
+    requires_human_review: false
+
+  - check_id: CHK-CERT-GOODS-001
+    title: Certificate goods rows contain valid descriptions, HS codes, and quantities
+    category: format_completeness
+    applies_to: [certificate_of_origin]
+    severity: high
+    determinism: deterministic
+    inputs: [certificate_goods]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Certificate goods row is incomplete or has an invalid HS code"
+    requires_human_review: false
+
+  - check_id: CHK-CERT-REFERENCE-001
+    title: Certificate contains a complete invoice reference
+    category: reference_integrity
+    applies_to: [certificate_of_origin]
+    severity: medium
+    determinism: deterministic
+    inputs: [referenced_invoice_number, referenced_invoice_date]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Certificate invoice reference is incomplete"
+    requires_human_review: false
+
   - check_id: CHK-FORMAT-MANDATORY-001
     title: All mandatory fields are present
     category: format_completeness

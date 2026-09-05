@@ -25,6 +25,7 @@ def register_validator(check_id: str, fn: Callable[[CheckContext], CheckResult])
 def _import_validators() -> None:
     from audit_v2.domain.validators import (
         arithmetic,
+        certificate,
         duplicate,
         format_completeness,
         reference_integrity,
@@ -70,6 +71,9 @@ def _import_validators() -> None:
         ("CHK-XDOC-PRICE-001", threeway.check_price_matches_po),
         ("CHK-XDOC-RECEIPT-001", threeway.check_receipt_exists),
         ("CHK-XDOC-CUMUL-001", threeway.check_cumulative_invoiced),
+        ("CHK-CERT-MANDATORY-001", certificate.check_certificate_mandatory),
+        ("CHK-CERT-GOODS-001", certificate.check_certificate_goods),
+        ("CHK-CERT-REFERENCE-001", certificate.check_certificate_invoice_reference),
     ]:
         register_validator(check_id, fn)
 

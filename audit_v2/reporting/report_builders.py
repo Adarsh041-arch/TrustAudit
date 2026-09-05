@@ -43,6 +43,11 @@ def _per_doc_rows(doc: dict[str, Any]) -> list[list[str]]:
     return rows
 
 
+def _score_label(document: dict[str, Any]) -> str:
+    value = document.get("score")
+    return "Not audited" if value is None else f"{float(value):.1f}%"
+
+
 def generate_docx_report(payload: dict[str, Any]) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -53,18 +58,26 @@ def generate_docx_report(payload: dict[str, Any]) -> bytes:
     doc.add_heading(payload.get("audit_title", "Audit V2 Report"), level=0)
     stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     doc.add_paragraph(f"Generated: {stamp} — {len(docs)} document(s)")
-    avg = sum(d.get("score", 0.0) for d in docs) / len(docs) if docs else 0.0
-    doc.add_paragraph(f"Overall score: {avg:.1f}%")
+    scored = [float(d["score"]) for d in docs if d.get("score") is not None]
+    avg = sum(scored) / len(scored) if scored else None
+    doc.add_paragraph(
+        f"Overall score: {avg:.1f}%" if avg is not None else "Overall score: Not audited"
+    )
+    if payload.get("executive_summary"):
+        doc.add_heading("Executive summary", level=1)
+        doc.add_paragraph(str(payload["executive_summary"]))
 
     for d in docs:
         doc.add_heading(d.get("document_name", "?"), level=1)
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         run = p.add_run(
-            f"Score: {d.get('score', 0.0):.1f}% — {d.get('risk_level', '')} — "
+            f"Score: {_score_label(d)} — {d.get('risk_level', '')} — "
             f"passed: {d.get('passed')}"
         )
         run.bold = True
+        if d.get("summary_text"):
+            doc.add_paragraph(str(d["summary_text"]))
         ml = d.get("ml_prediction") or {}
         doc.add_paragraph(f"Prediction: {ml.get('prediction', 'N/A')} ({ml.get('mode', '')})")
         if d.get("human_review_recommended"):
@@ -119,6 +132,11 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
             body,
         )
     )
+    if payload.get("executive_summary"):
+        story.append(Paragraph("Executive summary", ParagraphStyle(
+            "Executive", parent=body, fontName="Helvetica-Bold", fontSize=11,
+        )))
+        story.append(Paragraph(str(payload["executive_summary"]), body))
     for d in docs:
         story.append(
             Paragraph(
@@ -126,9 +144,11 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
                 ParagraphStyle("Doc", parent=body, fontName="Helvetica-Bold", fontSize=11),
             )
         )
+        if d.get("summary_text"):
+            story.append(Paragraph(str(d["summary_text"]), body))
         story.append(
             Paragraph(
-                f"Score: {d.get('score', 0.0):.1f}% — {d.get('risk_level', '')} — "
+                f"Score: {_score_label(d)} — {d.get('risk_level', '')} — "
                 f"passed: {d.get('passed')}",
                 body,
             )

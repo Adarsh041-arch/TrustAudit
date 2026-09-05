@@ -34,5 +34,7 @@ class TestCheckCatalog:
     def test_each_doc_type_has_checks(self, check_catalog: CheckCatalog):
         from audit_v2.domain.models import DocumentType
         for doc_type in DocumentType:
+            if doc_type == DocumentType.UNKNOWN:
+                continue
             doc_type_checks = [c for c in check_catalog.checks if doc_type in c.applies_to]
             assert doc_type_checks, f"No checks for document type: {doc_type}"

@@ -6,16 +6,17 @@ import { FlatCard } from '../components/FlatCard'
 interface ReportSectionProps {
   documents: DocumentAuditResult[]
   findings: any[]
+  executiveSummary?: string
 }
 
-export function ReportSection({ documents, findings }: ReportSectionProps) {
+export function ReportSection({ documents, findings, executiveSummary = '' }: ReportSectionProps) {
   const [busy, setBusy] = useState<'docx' | 'pdf' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function handleDownload(format: 'docx' | 'pdf') {
     try {
       setBusy(format)
-      const blob = await downloadReportV2(format, documents, findings)
+      const blob = await downloadReportV2(format, documents, findings, 'Audit V2 Report', executiveSummary)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

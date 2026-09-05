@@ -24,7 +24,7 @@ MONTH_NAMES = {
 GSTIN_RE = re.compile(r"^\d{2}[A-Z]{5}\d{4}[A-Z]{1}\d[Z]{1}[A-Z\d]{1}$")
 HSN_RE = re.compile(r"^\d{4,8}$")
 PO_REF_SHORT_RE = re.compile(
-    r"((?:PO|P\.?O\.?)[\s.:#/-]*[A-Za-z0-9][A-Za-z0-9/-]+)",
+    r"(?<![A-Za-z0-9])((?:PO|P\.?O\.?)[\s.:#/-]+[A-Za-z0-9][A-Za-z0-9/-]+)",
     re.IGNORECASE,
 )
 PO_REF_LONG_RE = re.compile(

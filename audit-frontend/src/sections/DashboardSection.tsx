@@ -24,14 +24,20 @@ const RISK_COLORS: Record<string, string> = {
 
 interface DashboardSectionProps {
   documents: DocumentAuditResult[]
+  executiveSummary?: string
+  onOpenDocument?: (documentId: string) => void
 }
 
-export function DashboardSection({ documents }: DashboardSectionProps) {
+export function DashboardSection({ documents, executiveSummary, onOpenDocument }: DashboardSectionProps) {
   const total = documents.length
+  const audited = documents.filter((d) => d.audit_status !== 'NOT_AUDITED' && d.score !== null).length
   const passed = documents.filter((d) => d.passed).length
-  const avg = total ? documents.reduce((s, d) => s + d.score, 0) / total : 0
+  const scored = documents.filter((d) => d.score !== null)
+  const avg = scored.length ? scored.reduce((s, d) => s + (d.score ?? 0), 0) / scored.length : 0
   const violations = documents.reduce((s, d) => s + d.failed_rules.length, 0)
   const highRisk = documents.filter((d) => d.risk_level === 'High Risk').length
+  const incomplete = documents.filter((d) => d.document_status !== 'READY').length
+  const reviewRequired = documents.filter((d) => d.human_review_recommended).length
 
   const riskMap: Record<string, number> = {}
   for (const d of documents) riskMap[d.risk_level] = (riskMap[d.risk_level] ?? 0) + 1
@@ -62,12 +68,19 @@ export function DashboardSection({ documents }: DashboardSectionProps) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <MetricCard label="Documents audited" value={total} />
-        <MetricCard label="Compliance rate" value={`${total ? ((passed / total) * 100).toFixed(0) : 0}%`} color="teal" />
+      {executiveSummary && (
+        <FlatCard>
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted mb-2">Executive summary</p>
+          <p className="text-[14px] leading-6 text-ink">{executiveSummary}</p>
+        </FlatCard>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        <MetricCard label="Documents audited" value={audited} />
+        <MetricCard label="Passed" value={passed} color="teal" />
+        <MetricCard label="Incomplete" value={incomplete} color="coral" />
         <MetricCard label="Average score" value={`${avg.toFixed(1)}%`} color="teal" />
-        <MetricCard label="Violations" value={violations} color="coral" />
         <MetricCard label="High risk" value={highRisk} color="coral" />
+        <MetricCard label="Review required" value={reviewRequired} color="coral" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -111,6 +124,31 @@ export function DashboardSection({ documents }: DashboardSectionProps) {
           </ResponsiveContainer>
         </FlatCard>
       </div>
+
+      <FlatCard>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-[16px] font-medium text-ink">Workspace documents</h3>
+          <span className="text-[12px] text-muted">{violations} total findings</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-[12.5px]">
+            <thead className="text-[10px] uppercase tracking-[0.12em] text-muted border-b border-border">
+              <tr><th className="py-2 pr-4">Document</th><th className="py-2 pr-4">Status</th><th className="py-2 pr-4">Score</th><th className="py-2 pr-4">Risk</th><th className="py-2">Findings</th></tr>
+            </thead>
+            <tbody>
+              {documents.map((doc) => (
+                <tr key={doc.document_id} className="border-b border-border/50 last:border-0">
+                  <td className="py-3 pr-4"><button onClick={() => onOpenDocument?.(doc.document_id)} className="text-ink font-medium hover:text-teal-600 cursor-pointer text-left">{doc.document_name}</button></td>
+                  <td className="py-3 pr-4 text-muted">{doc.document_status}</td>
+                  <td className="py-3 pr-4 font-mono text-ink">{doc.score === null ? 'Not audited' : `${doc.score.toFixed(1)}%`}</td>
+                  <td className="py-3 pr-4 text-muted">{doc.risk_level}</td>
+                  <td className="py-3 text-muted">{doc.failed_rules.length}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </FlatCard>
     </div>
   )
 }

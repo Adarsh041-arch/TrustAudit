@@ -24,7 +24,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["invoice", "purchase_order", "delivery_challan", "goods_receipt_note"]
+        "enum": ["invoice", "purchase_order", "delivery_challan", "goods_receipt_note", "contract", "letter", "certificate_of_origin"]
       },
       "minItems": 1
     },

@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -16,10 +16,24 @@ class DocumentType(StrEnum):
     GOODS_RECEIPT_NOTE = "goods_receipt_note"
     CONTRACT = "contract"
     LETTER = "letter"
+    CERTIFICATE_OF_ORIGIN = "certificate_of_origin"
+    UNKNOWN = "unknown"
 
 
 #: Free-text document types — VLM-only extraction (report + key fields).
-TEXT_DOC_TYPES = frozenset({DocumentType.CONTRACT, DocumentType.LETTER})
+TEXT_DOC_TYPES = frozenset({
+    DocumentType.CONTRACT,
+    DocumentType.LETTER,
+    DocumentType.CERTIFICATE_OF_ORIGIN,
+    DocumentType.UNKNOWN,
+})
+
+
+class ClassificationStatus(StrEnum):
+    CONFIRMED = "CONFIRMED"
+    AMBIGUOUS = "AMBIGUOUS"
+    CONFLICTED = "CONFLICTED"
+    UNSUPPORTED = "UNSUPPORTED"
 
 
 class DocumentStatus(StrEnum):
@@ -37,6 +51,7 @@ class DocumentStatus(StrEnum):
     QUARANTINED_MALWARE = "QUARANTINED_MALWARE"
     QUARANTINED_SECURITY = "QUARANTINED_SECURITY"
     INCOMPLETE = "INCOMPLETE"
+    UNSUPPORTED = "UNSUPPORTED"
 
 
 class FindingStatus(StrEnum):
@@ -166,6 +181,7 @@ class LineItem(BaseModel):
     unit_price: ProvenancedValue
     line_total: ProvenancedValue
     hsn_sac: ProvenancedValue | None = None
+    quantity_unit: ProvenancedValue | None = None
 
     def expected_total(self, exponent: Decimal = Decimal("0.01")) -> Decimal:
         """Quantity x unit price, quantized to the currency's minor unit.
@@ -188,6 +204,21 @@ class TaxLine(BaseModel):
     total_tax: ProvenancedValue
 
 
+class CertificateGoodsItem(BaseModel):
+    line_number: int = Field(ge=1)
+    description: ProvenancedValue
+    hs_code: ProvenancedValue
+    quantity: ProvenancedValue
+    quantity_unit: ProvenancedValue | None = None
+    invoice_number: ProvenancedValue | None = None
+    invoice_date: ProvenancedValue | None = None
+
+
+class ClassificationEvidence(BaseModel):
+    page: int = Field(ge=1)
+    text: str
+
+
 class DocumentHeader(BaseModel):
     document_id: str
     doc_type: DocumentType
@@ -196,6 +227,10 @@ class DocumentHeader(BaseModel):
     vendor_gstin: ProvenancedValue | None = None
     buyer_name: ProvenancedValue | None = None
     buyer_gstin: ProvenancedValue | None = None
+    invoice_number: ProvenancedValue | None = None
+    po_number: ProvenancedValue | None = None
+    challan_number: ProvenancedValue | None = None
+    grn_number: ProvenancedValue | None = None
     invoice_date: ProvenancedValue | None = None
     due_date: ProvenancedValue | None = None
     po_reference: ProvenancedValue | None = None
@@ -216,6 +251,37 @@ class DocumentHeader(BaseModel):
     expiry_date: ProvenancedValue | None = None
     received_date: ProvenancedValue | None = None
     grn_date: ProvenancedValue | None = None
+    certificate_number: ProvenancedValue | None = None
+    certificate_date: ProvenancedValue | None = None
+    exporter_name: ProvenancedValue | None = None
+    exporter_address: ProvenancedValue | None = None
+    consignee_name: ProvenancedValue | None = None
+    consignee_address: ProvenancedValue | None = None
+    country_of_origin: ProvenancedValue | None = None
+    referenced_invoice_number: ProvenancedValue | None = None
+    referenced_invoice_date: ProvenancedValue | None = None
+    issuing_authority: ProvenancedValue | None = None
+    signature_present: bool | None = None
+    seal_present: bool | None = None
+
+    @field_validator("bank_details", mode="before")
+    @classmethod
+    def _clean_bank_details(cls, v: object) -> dict[str, str] | None:
+        """Normalize model-supplied bank details to ``dict[str, str] | None``.
+
+        VLMs emit ``{"account_number": null, "ifsc": null}`` for documents with
+        no bank block (e.g. export invoices), which violates the ``str`` value
+        type. Drop null/empty entries and coerce the rest to strings; an
+        all-empty block collapses to ``None``.
+        """
+        if not isinstance(v, dict):
+            return None
+        cleaned = {
+            str(k): str(val).strip()
+            for k, val in v.items()
+            if val is not None and str(val).strip() != ""
+        }
+        return cleaned or None
 
 
 class ExtractedDocument(BaseModel):
@@ -225,14 +291,33 @@ class ExtractedDocument(BaseModel):
     header: DocumentHeader
     line_items: list[LineItem] = Field(default_factory=list)
     tax_lines: list[TaxLine] = Field(default_factory=list)
+    certificate_goods: list[CertificateGoodsItem] = Field(default_factory=list)
     coverage: Coverage
     page_count: int = Field(ge=1)
     extractor_version: str
+    # Actual vision model used for extraction. None for deterministic-only reads.
+    model_version: str | None = None
+    # Structured candidates rejected because they were absent from raw OCR text.
+    grounding_rejections: list[str] = Field(default_factory=list)
     # VLM-only text documents (contract/letter): free-text narrative report.
     narrative_report: str | None = None
     # Dual extraction (regex + VLM): fields where the two methods disagreed.
     # field_name -> "regex_value vs vlm_value". Non-empty => human review.
     extraction_disagreements: dict[str, str] = Field(default_factory=dict)
+    classification_status: ClassificationStatus = ClassificationStatus.CONFIRMED
+    classification_confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    classification_method: str = "provided"
+    classification_evidence: list[ClassificationEvidence] = Field(default_factory=list)
+    alternative_types: list[DocumentType] = Field(default_factory=list)
+    extraction_strategy: str = "unsupported"
+    vision_backend: str | None = None
+    vision_call_count: int = Field(default=0, ge=0)
+    # Compatibility counter retained for existing V2 clients.
+    glm_call_count: int = Field(default=0, ge=0)
+    structured_fallback_used: bool = False
+    transcript_cache_hit: bool = False
+    extraction_latency_ms: float = Field(default=0.0, ge=0.0)
+    fallback_reasons: list[str] = Field(default_factory=list)
 
 
 # ─── Findings ────────────────────────────────────────────────────────────────
@@ -310,7 +395,8 @@ class CorpusIndex(BaseModel):
     """
     # "vendor||docnum" -> list of document_ids carrying that number
     by_vendor_docnum: dict[str, list[str]] = Field(default_factory=dict)
-    # "vendor||amount||date" -> list of document_ids
+    # "vendor||doc_type||amount||date" -> list of document_ids. Type-scoped so
+    # a PO/contract/certificate sharing an invoice's amount+date is not a dup.
     by_vendor_amount_date: dict[str, list[str]] = Field(default_factory=dict)
 
 

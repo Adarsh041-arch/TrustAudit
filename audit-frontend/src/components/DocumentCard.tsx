@@ -1,15 +1,16 @@
-import type { DocumentAuditResult, PredictionInterval } from '../types/audit'
+import type { DocumentAuditResult } from '../types/audit'
 import { FlatCard } from './FlatCard'
 import { ScoreDisplay } from './ScoreDisplay'
 import { StatusBadge } from './StatusBadge'
 import { FailedRulesList } from './FailedRulesList'
+import { ContradictionList } from './ContradictionList'
+import { EvidenceTrail } from './EvidenceTrail'
 
 interface DocumentCardProps {
   doc: DocumentAuditResult
-  interval: PredictionInterval
 }
 
-export function DocumentCard({ doc, interval }: DocumentCardProps) {
+export function DocumentCard({ doc }: DocumentCardProps) {
   return (
     <FlatCard>
       <div className="flex gap-4">
@@ -28,17 +29,20 @@ export function DocumentCard({ doc, interval }: DocumentCardProps) {
             <div className="min-w-0 mr-4">
               <p className="text-[18px] font-medium text-ink truncate">{doc.document_name}</p>
               <p className="text-[13px] text-muted mt-0.5">
-                Score: {doc.score.toFixed(1)}%
+                Score: {doc.score === null ? 'Not audited' : `${doc.score.toFixed(1)}%`}
               </p>
             </div>
             <StatusBadge passed={doc.passed} />
           </div>
 
           <div className="mb-4">
-            <ScoreDisplay score={doc.score} interval={interval} />
+            <ScoreDisplay score={doc.score} interval={doc.prediction_interval} />
           </div>
 
           <FailedRulesList rules={doc.failed_rules} />
+
+          <ContradictionList contradictions={doc.contradictions ?? []} />
+          <EvidenceTrail evidences={doc.evidences ?? []} />
 
           {doc.remarks && (
             <p className="text-[13px] text-muted mt-3 italic leading-relaxed">{doc.remarks}</p>

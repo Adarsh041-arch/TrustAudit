@@ -456,6 +456,17 @@ class TestFormatCompleteness:
         assert format_completeness.check_mandatory_fields(
             ctx(d, "CHK-FORMAT-MANDATORY-001")).status == FindingStatus.PASS
 
+    def test_contract_expiry_is_optional(self):
+        contract = doc(
+            doc_type=DocumentType.CONTRACT,
+            vendor_name=pv("Seller"),
+            buyer_name=pv("Buyer"),
+            invoice_date=pv("2026-07-20"),
+        )
+        assert format_completeness.check_mandatory_fields(
+            ctx(contract, "CHK-FORMAT-MANDATORY-001")
+        ).status == FindingStatus.PASS
+
     def test_line_item_fields_present(self):
         d = doc(lines=[line(1, "1", "10.00", "10.00")])
         assert format_completeness.check_line_item_fields(

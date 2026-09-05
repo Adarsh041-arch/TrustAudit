@@ -64,6 +64,8 @@ def test_routing_rules_respect_applies_to(catalog):
 
 @pytest.mark.parametrize("doc_type", list(DocumentType))
 def test_every_doc_type_routes_to_a_rule(doc_type, catalog):
+    if doc_type == DocumentType.UNKNOWN:
+        pytest.skip("unknown documents are deliberately non-auditable")
     applicable = [
         c.check_id
         for c in catalog.checks

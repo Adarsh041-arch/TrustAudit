@@ -29,6 +29,14 @@ from audit_v2.domain.models import (
 DATE_WINDOW_DAYS = 45
 FUZZY_MIN_OVERLAP = 0.5
 
+# Placeholder ids the extractors emit into header.document_id when they could
+# not read a printed document number. These must never be treated as a PO's
+# business number for linkage.
+_PLACEHOLDER_DOC_IDS = frozenset({
+    "extracted", "po_extracted", "inv_extracted", "grn_extracted",
+    "dc_extracted", "vlm_doc", "vlm_text_doc",
+})
+
 _CONFIDENCE = {
     LinkMethod.EXPLICIT_REFERENCE: 0.98,
     LinkMethod.VENDOR_AMOUNT_DATE: 0.80,
@@ -44,9 +52,28 @@ def _vendor_of(doc: ExtractedDocument) -> str:
     return _norm(doc.header.vendor_name.value if doc.header.vendor_name else None)
 
 
+def _po_business_number(doc: ExtractedDocument) -> str:
+    """A purchase order's *printed* number (e.g. ``PO-2026-118``), normalized.
+
+    The regex extractors write the printed number into ``header.document_id``
+    (see po_extractor ``po_number`` handling); the top-level
+    ``ExtractedDocument.document_id`` is a per-upload hash (``doc_XXXX``)
+    assigned at ingest. Linking on the hash was the Phase-7 cluster bug: an
+    invoice citing ``PO-2026-118`` could never match a PO keyed by its hash, so
+    the three-way-match checks silently SKIPped. Prefer the printed header id;
+    fall back to ``po_reference`` (the VLM path may put the PO's own number
+    there); ignore placeholders and the ingest hash.
+    """
+    hid = (doc.header.document_id or "").strip()
+    if hid and hid not in _PLACEHOLDER_DOC_IDS and not hid.startswith("doc_"):
+        return _norm(hid)
+    ref = doc.header.po_reference
+    return _norm(ref.value if ref else None)
+
+
 def _po_ref_of(doc: ExtractedDocument) -> str:
     if doc.doc_type == DocumentType.PURCHASE_ORDER:
-        return _norm(doc.document_id)
+        return _po_business_number(doc)
     ref = doc.header.po_reference
     return _norm(ref.value if ref else None)
 
@@ -168,6 +195,9 @@ def build_corpus_index(documents: list[ExtractedDocument]) -> CorpusIndex:
                 f"{vendor}||{docnum}", []).append(doc.document_id)
         amount, doc_date = _amount_of(doc), _date_of(doc)
         if vendor and amount is not None and doc_date is not None:
-            key = f"{vendor}||{amount}||{doc_date.isoformat()}"
+            # Near-duplicate key is doc-type-scoped: a certificate, PO, or
+            # contract that merely shares a vendor/amount/date with an invoice
+            # is NOT a duplicate. Only same-kind documents can duplicate.
+            key = f"{vendor}||{doc.doc_type.value}||{amount}||{doc_date.isoformat()}"
             index.by_vendor_amount_date.setdefault(key, []).append(doc.document_id)
     return index

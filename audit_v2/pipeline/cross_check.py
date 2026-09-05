@@ -1,0 +1,192 @@
+"""LLM cross-check over the evidence list (new_requirements.md §5).
+
+Given all the evidences gathered for one document (metadata, extracted fields,
+arithmetic computations, VLM observations, OCR+regex observations), a text LLM
+judges whether they *support each other* and emits structured contradictions:
+the nature of the evidence, the evidence itself, the reason, a confidence, and a
+severity — exactly the spec's shape.
+
+Authority boundary: the LLM only *adds* advisory contradictions. It never
+overturns a deterministic validator — the server reconciles contradictions
+against authoritative findings in code (see ``server.py``). To stay robust
+against a small text model, the LLM fills a *permissive* schema here and we
+coerce it into the strict :class:`Contradiction`/:class:`CrossCheckResult`
+domain types (valid enums, clamped confidence, injected ``document_id``).
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+
+from pydantic import BaseModel, Field
+
+from audit_v2.domain.evidence import (
+    Contradiction,
+    CrossCheckResult,
+    EvidenceNature,
+    PipelineEvidence,
+)
+from audit_v2.domain.models import DocumentType, Severity
+from audit_v2.gateway.nvidia_gateway import NvidiaGateway
+from audit_v2.gateway.structured import extract_structured
+
+logger = logging.getLogger(__name__)
+
+TENANT_MODEL_ENV = "NVIDIA_TEXT_MODEL"
+DEFAULT_TEXT_MODEL = "meta/llama-3.3-70b-instruct"
+
+#: Loose nature synonyms a small model tends to emit → canonical nature.
+_NATURE_SYNONYMS = {
+    "arithmetic": EvidenceNature.ARITHMETIC_COMPUTATION,
+    "arithmetic_computation": EvidenceNature.ARITHMETIC_COMPUTATION,
+    "vlm": EvidenceNature.VLM_OBSERVATIONS,
+    "vlm_observations": EvidenceNature.VLM_OBSERVATIONS,
+    "ocr": EvidenceNature.OCR_REGEX_OBSERVATIONS,
+    "regex": EvidenceNature.OCR_REGEX_OBSERVATIONS,
+    "ocr+regex_observations": EvidenceNature.OCR_REGEX_OBSERVATIONS,
+    "ocr_regex_observations": EvidenceNature.OCR_REGEX_OBSERVATIONS,
+    "extracted_fields": EvidenceNature.EXTRACTED_FIELDS,
+    "fields": EvidenceNature.EXTRACTED_FIELDS,
+    "metadata": EvidenceNature.METADATA,
+}
+
+
+class _LlmContradiction(BaseModel):
+    """Permissive shape the LLM fills; coerced to :class:`Contradiction`."""
+
+    nature: str = Field(
+        default="extracted_fields",
+        description="one of: metadata, extracted_fields, arithmetic_computation, "
+        "vlm_observations, ocr+regex_observations",
+    )
+    evidence: str = Field(default="", description="the evidence value/text in question")
+    reason: str = Field(default="", description="why it contradicts the other evidence")
+    confidence: float = Field(default=0.5, description="0.0–1.0")
+    severity: str = Field(default="medium", description="one of: low, medium, high, critical")
+    conflicting_with: str | None = Field(
+        default=None, description="which other evidence this conflicts with"
+    )
+
+
+class _LlmCrossCheck(BaseModel):
+    supported: bool = Field(default=True, description="do the evidences support each other?")
+    contradictions: list[_LlmContradiction] = Field(default_factory=list)
+    summary: str = Field(default="", description="one-line verdict")
+
+
+def _make_text_gateway() -> NvidiaGateway:
+    return NvidiaGateway(model=os.getenv(TENANT_MODEL_ENV) or DEFAULT_TEXT_MODEL)
+
+
+def _evidence_digest(evidences: list[PipelineEvidence]) -> str:
+    """Compact, token-bounded rendering of the evidence list for the prompt."""
+    lines: list[str] = []
+    for ev in evidences:
+        payload = json.dumps(ev.payload, default=str)
+        if len(payload) > 600:
+            payload = payload[:600] + "…"
+        lines.append(
+            f"- [{ev.nature.value} | source={ev.source} | conf={ev.confidence:.2f}] "
+            f"{ev.summary}\n    payload: {payload}"
+        )
+    return "\n".join(lines)
+
+
+def _build_prompt(evidences: list[PipelineEvidence], doc_type: DocumentType) -> str:
+    return (
+        "You are a meticulous audit cross-checker. Below is a list of independent "
+        f"evidences gathered from a single {doc_type.value} document by different "
+        "methods (metadata, regex+OCR text, VLM observations, arithmetic).\n\n"
+        "Decide whether the evidences SUPPORT EACH OTHER. Where two or more "
+        "evidences disagree about the same fact (e.g. a total the VLM read "
+        "differs from the arithmetic sum, or OCR text contradicts an extracted "
+        "field), report a contradiction.\n\n"
+        "For each contradiction give: the nature of the evidence, the evidence "
+        "value in question, the reason it contradicts the others, your confidence "
+        "(0–1), and a severity (low/medium/high/critical). Do NOT invent "
+        "contradictions where the evidences agree; return an empty list if they "
+        "are consistent.\n\n"
+        "EVIDENCE LIST:\n"
+        f"{_evidence_digest(evidences)}\n"
+    )
+
+
+def _coerce_nature(raw: str) -> EvidenceNature:
+    key = str(raw).strip().lower()
+    if key in _NATURE_SYNONYMS:
+        return _NATURE_SYNONYMS[key]
+    try:
+        return EvidenceNature(key)
+    except ValueError:
+        return EvidenceNature.EXTRACTED_FIELDS
+
+
+def _coerce_severity(raw: str) -> Severity:
+    try:
+        return Severity(str(raw).strip().lower())
+    except ValueError:
+        return Severity.MEDIUM
+
+
+def _to_contradiction(llm: _LlmContradiction, document_id: str) -> Contradiction:
+    return Contradiction(
+        document_id=document_id,
+        nature=_coerce_nature(llm.nature),
+        evidence=llm.evidence,
+        reason=llm.reason,
+        confidence=max(0.0, min(1.0, llm.confidence)),
+        severity=_coerce_severity(llm.severity),
+        conflicting_with=llm.conflicting_with,
+    )
+
+
+def run_cross_check(
+    evidences: list[PipelineEvidence],
+    document_id: str,
+    doc_type: DocumentType,
+    tenant_id: str,
+    *,
+    gateway: NvidiaGateway | None = None,
+) -> CrossCheckResult:
+    """Cross-check the evidence list via the text LLM, degrading gracefully.
+
+    Returns an empty (``supported=True``) result when no key/gateway is
+    available or the call fails — the deterministic checks still run regardless.
+    """
+    if not evidences:
+        return CrossCheckResult(document_id=document_id, supported=True, summary="no evidence")
+
+    if gateway is None:
+        if not os.getenv("NVIDIA_API_KEY"):
+            return CrossCheckResult(
+                document_id=document_id,
+                supported=True,
+                summary="cross-check skipped (NVIDIA_API_KEY not set)",
+            )
+        gateway = _make_text_gateway()
+
+    prompt = _build_prompt(evidences, doc_type)
+    try:
+        llm_result = extract_structured(
+            gateway=gateway,
+            images=[],
+            prompt=prompt,
+            schema_model=_LlmCrossCheck,
+            tenant_id=tenant_id,
+        )
+    except Exception as err:
+        logger.warning("Cross-check LLM call failed for %s: %s", document_id, err)
+        return CrossCheckResult(
+            document_id=document_id, supported=True, summary=f"cross-check unavailable: {err}"
+        )
+
+    contradictions = [
+        _to_contradiction(c, document_id) for c in llm_result.contradictions
+    ]
+    return CrossCheckResult(
+        document_id=document_id,
+        supported=llm_result.supported and not contradictions,
+        contradictions=contradictions,
+        summary=llm_result.summary,
+    )

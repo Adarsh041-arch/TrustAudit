@@ -36,13 +36,19 @@ def _document_hash(document: ExtractedDocument) -> str:
         f"examined:{document.coverage.pages_examined}",
         f"unreadable:{sorted(document.coverage.pages_unreadable)}",
         f"complete:{document.coverage.coverage_complete}",
+        f"classification:{document.classification_status.value}",
+        f"classification_method:{document.classification_method}",
     ]
     for name in (
         "vendor_name", "vendor_gstin", "buyer_name", "buyer_gstin",
+        "invoice_number", "po_number", "challan_number", "grn_number",
         "invoice_date", "due_date", "order_date", "delivery_date",
         "expiry_date", "received_date", "grn_date", "po_reference",
         "subtotal", "discount_amount", "discount_percentage", "grand_total",
         "opening_balance", "receipts", "payments", "closing_balance",
+        "certificate_number", "certificate_date", "exporter_name", "exporter_address",
+        "consignee_name", "consignee_address", "country_of_origin",
+        "referenced_invoice_number", "referenced_invoice_date", "issuing_authority",
     ):
         value = getattr(h, name, None)
         if value is not None:
@@ -59,6 +65,14 @@ def _document_hash(document: ExtractedDocument) -> str:
         parts.append(
             f"T{tl.line_number}:{tl.description.value}|{tl.taxable_value.value}"
             f"|{tl.rate.value}|{tl.cgst.value}|{tl.sgst.value}|{tl.total_tax.value}"
+        )
+    for goods in document.certificate_goods:
+        unit = goods.quantity_unit.value if goods.quantity_unit else ""
+        invoice = goods.invoice_number.value if goods.invoice_number else ""
+        invoice_date = goods.invoice_date.value if goods.invoice_date else ""
+        parts.append(
+            f"C{goods.line_number}:{goods.description.value}|{goods.hs_code.value}"
+            f"|{goods.quantity.value}|{unit}|{invoice}|{invoice_date}"
         )
 
     raw = "|".join(parts)

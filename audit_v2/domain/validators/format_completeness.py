@@ -25,10 +25,11 @@ MANDATORY_FIELDS_BY_TYPE = {
     DocumentType.GOODS_RECEIPT_NOTE: [
         "vendor_name", "grn_date",
     ],
-    # Text documents: VLM-only extraction maps party/date fields into these
-    # standard header slots (see text_doc_extractor.py).
+    # Contract effective dates map into ``invoice_date`` for compatibility.
+    # Expiry is optional: absence is not a defect unless a tenant-specific rule
+    # explicitly requires a validity period.
     DocumentType.CONTRACT: [
-        "vendor_name", "buyer_name", "invoice_date", "expiry_date",
+        "vendor_name", "buyer_name", "invoice_date",
     ],
     DocumentType.LETTER: [
         "vendor_name", "invoice_date",
@@ -40,7 +41,18 @@ def check_mandatory_fields(ctx: CheckContext) -> CheckResult:
     """CHK-FORMAT-MANDATORY-001 — all mandatory fields are present."""
     doc = ctx.document
     doc_type = doc.doc_type
-    mandatory = MANDATORY_FIELDS_BY_TYPE.get(doc_type, [])
+    mandatory = list(MANDATORY_FIELDS_BY_TYPE.get(doc_type, []))
+
+    if doc_type == DocumentType.INVOICE and "vendor_gstin" in mandatory:
+        all_pvs = [doc.header.grand_total, doc.header.subtotal]
+        for li in doc.line_items:
+            all_pvs.extend([li.line_total, li.unit_price])
+        currencies = {pv.currency.upper() for pv in all_pvs if pv and pv.currency}
+        inr_symbols = {"INR", "RS", "RS.", "₹"}
+        is_international = bool(currencies and not currencies.intersection(inr_symbols))
+        if is_international or not doc.tax_lines:
+            mandatory.remove("vendor_gstin")
+
     missing = []
     for field in mandatory:
         val = getattr(doc.header, field, None)

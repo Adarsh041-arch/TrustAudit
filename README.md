@@ -1,129 +1,187 @@
-# TrustAudit 🛡️ — Enterprise Compliance Intelligence Platform
+# TrustAudit V2
 
-TrustAudit is a multi-model AI compliance and document audit platform. It automates the verification of vendor invoices, purchase orders, receipts, delivery challans, contracts, and certificates using Vision Language Models (VLM), vector-based Policy RAG, Random Forest ML risk classification, and deterministic Three-Way Match cross-verification.
+**An evidence-grounded AI finance controller for document audit, three-way matching, and payment reconciliation.**
 
----
+TrustAudit V2 processes invoices, purchase orders, goods receipts, delivery challans, contracts, and certificates. A local vision model reads each page, deterministic parsers extract explicit facts, and Python validators make the financial decisions. Unreadable, unsupported, or weakly grounded documents are sent to review instead of being presented as passed.
 
-## 🚀 Architectural Pipeline & Pipeline Stages
+> Primary submission: **V2 on port 8100**. The original V1 remains in this repository for provenance and comparison, but it is frozen.
 
-TrustAudit operates an end-to-end 6-stage compliance auditing pipeline:
+## Why it fits AI Finance Controller
 
-```
-[ Local Document Batch ] ──► 1. VLM Extraction & RAG Retrieval ──► 2. Rule Risk Scoring & ML Classification
-                                                                              │
-[ Recharts & Export ]    ◄── 5. Report Builders & Copilot      ◄── 4. Analytics & 95% CI ◄── 3. Three-Way Match
-```
+- Audits batches of trade and finance documents.
+- Correlates invoices, purchase orders, and goods receipts for three-way matching.
+- Reconciles payout, bank, and ledger records with an explicit exception list.
+- Calculates money with Python `Decimal`; the vision model never decides arithmetic.
+- Preserves page-level evidence, review decisions, contradictions, and decision fingerprints.
+- Fails safely: incomplete evidence cannot produce a passing document.
 
-### Stage 1: Document Classification, VLM Summarization & RAG Policy Retrieval
-- **Document Classifier**: Identifies document types (`invoice`, `purchase_order`, `receipt`, `contract`, `certificate`).
-- **Multimodal VLM**: Extracts structured summaries, metadata key fields, and 180px page-1 thumbnail previews.
-- **ChromaDB Policy RAG**: Indexes [checklist.md](file:///c:/Users/adars/OneDrive/Desktop/AUDIT_AGENT/checklist.md) policies into ChromaDB (using `text-embedding-004`), retrieving top-4 relevant policies for each document.
+## How it works
 
-### Stage 2: Explainable Audit & Risk Scoring
-- **Deterministic Risk Score**: Calculates score bounded between 0.0% and 100.0%:
-  $$\text{Score} = \max\left(0, 100 - \sum \text{Severity Weights}\right)$$
-  *(Critical = 40 pts, High = 25 pts, Medium = 10 pts, Low = 5 pts)*.
-- **Random Forest ML Classification**: Uses a 13-dimensional feature vector (`[doc_type_flags, page_count, score, R001..R005_fail_counts]`) to predict `Compliant`, `Partially Compliant`, or `Non-Compliant` with class probability distributions.
-- **Aggregated Confidence & Human Review**:
-  $$\text{Final Confidence} = 0.7 \times \text{VLM Confidence} + 0.3 \times \max(\text{ML Probabilities})$$
-  *(Flags `human_review_recommended` if Confidence $< 75\%$ or Risk Level is High Risk)*.
-
-### Stage 3: Three-Way Match Cross-Verification
-Performs multi-document transaction reconciliation across 4 verification checks:
-1. **Amount Match**: Reconciles $\text{Invoice Total}$ vs $\text{PO Total}$ ($|\text{Diff}| \le \$0.01$).
-2. **Vendor Identity Match**: Token-set overlap verification on vendor names.
-3. **Chronology Sequence**: Verifies $\text{PO Date} \le \text{Invoice Date} \le \text{Receipt Date}$.
-4. **Approval Signatures**: Verifies signature rules (`R004`) across matching transaction files.
-
-### Stage 4: Analytics Aggregator & 95% Prediction Interval
-- **KPI Metrics**: Calculates total audited, overall compliance rate, average score, total violations, and high-risk document count.
-- **95% Statistical Prediction Interval**:
-  $$\text{Margin of Error } (E) = 1.96 \times \frac{s}{\sqrt{N}}$$
-  $$\text{Prediction Interval} = [\max(0.0, \bar{S} - E), \min(100.0, \bar{S} + E)]$$
-- **Recharts Datasets**: Formats Risk Distribution (Pie Chart), Violation Frequency (Bar Chart), Compliance Trends (Line Chart), and Document Type Breakdowns.
-
-### Stage 5: Reports & Auditor Copilot
-- **DOCX & PDF Report Builders**: Generates downloadable Word (`.docx`) and PDF (`.pdf`) executive reports with color-coded violation tables, severity badges, and RAG citations.
-- **Auditor Copilot Chat**: Grounded conversational AI assistant powered by Gemini/NVIDIA VLM to answer user queries about audit findings and reconciliation discrepancies.
-
----
-
-## 📋 Calibrated Audit Policy Checklist
-
-Policy rules are defined in [checklist.md](file:///c:/Users/adars/OneDrive/Desktop/AUDIT_AGENT/checklist.md) with calibrated severities:
-
-| Rule ID & Title | Severity | Mandatory? | Scope & Focus |
-|---|---|---|---|
-| **R003: Mathematical Accuracy** | `critical` | **`true`** | Core financial arithmetic (Line totals $Qty \times Price$, subtotal, taxes, grand total). |
-| **R005: Date Validity & Future Dates** | `high` | **`true`** | Chronological integrity (Future dates, expired certificates). |
-| **R006: Currency & Amount Consistency** | `high` | **`true`** | Uniform currency symbols and amount figure reconciliation. |
-| **R001: Document Legibility** | `medium` | `false` | Readable text and headers. |
-| **R002: Mandatory Fields Present** | `medium` | `false` | Document-dependent field check (varies by document type). |
-| **R004: Authorization & Signatures** | `medium` | `false` | Signatures & stamps (omitted on computer tax invoices = medium severity). |
-| **R007: Vendor / Customer Information** | `medium` | `false` | Legal names, addresses, and registry IDs. |
-| **R008, R009, R010, R011, R012** | `medium` / `low` | `false` | Document number uniqueness, payment terms, tax breakdowns, descriptions, attachments. |
-
----
-
-## 🏛️ System Architecture — V1 vs V2 Coexistence
-
-The repository maintains a strict two-system architecture per `AGENTS.md` and `.importlinter`:
-
-| System | Port | Directory | Status | Stack |
-|---|---|---|---|---|
-| **V1 (TrustAudit)** | **`:8000`** | `app/` + `backend/` + `audit-frontend/` | Frozen (Feature Complete) | FastAPI, Gemini/NVIDIA VLM, LangGraph, React |
-| **V2 (Audit V2)** | **`:8100`** | `audit_v2/` + `contracts/` + `evaluation/` | Active Development | Temporal, Postgres, MinIO, Pure Python Validators |
-
----
-
-## 📁 Repository Structure
-
-```
-├── app/                     # V1 LangGraph Agent & VLM Logic
-│   ├── vlm.py               # Multimodal VLM client (Gemini / NVIDIA Llama-3.2-Vision)
-│   └── explainable_audit.py # Explainable audit engine
-├── backend/                 # V1 FastAPI Backend Server (Port :8000)
-│   ├── server.py            # API routes (/api/audit, /api/audit/download, /api/copilot/chat)
-│   └── runner.py            # Full 6-stage audit pipeline execution engine
-├── audit_v2/                # V2 Audit Engine Architecture (Port :8100)
-│   ├── server.py            # V2 FastAPI Server
-│   ├── domain/              # Pure Python validators & Decimal arithmetic
-│   ├── analytics/           # Risk scoring, ML predictor, and aggregator
-│   └── reporting/           # Report builders (DOCX & PDF)
-├── audit-frontend/          # React + Vite + TypeScript Dashboard (Port :5173)
-├── policy_store/            # RAG vector store policy manager
-├── rag_engine/              # ChromaDB policy retriever
-├── risk_engine/             # Risk scoring & weighted deduction calculations
-├── ml_models/               # Random Forest risk classifier
-├── copilot/                 # Auditor Copilot chatbot engine
-├── reporting/               # DOCX & PDF report generation builders
-└── checklist.md             # Calibrated audit checklist definition
+```mermaid
+flowchart LR
+    A[PDF or image batch] --> B[200-DPI page rendering]
+    B --> C[Qwen2.5-VL transcription]
+    B --> D[RapidOCR corroboration]
+    C --> E[Type-specific deterministic parsing]
+    E --> F[Same-page grounding]
+    D --> F
+    F --> G[Decimal validators and check catalog]
+    G --> H[Three-way match and reconciliation]
+    G --> I[Findings and human-review queue]
+    H --> J[Dashboard, evidence, and reports]
+    I --> J
 ```
 
----
+The default balanced cascade makes one Qwen transcription call for a clean page. A targeted structured-model request is used only for missing or ambiguous fields, and every returned value must still be grounded in the page transcription. Presentation summaries are deterministic by default; NVIDIA is optional for prose, cross-checking, and the on-demand copilot.
 
-## 🛠️ Getting Started
+## Safety properties
 
-### 1. Backend Setup
+| Property | Behaviour |
+|---|---|
+| Monetary decisions | Pure Python validators using `Decimal` |
+| OCR/VLM claims | Must be supported by same-page transcription |
+| Missing pages or failed extraction | `INCOMPLETE`, never `PASS` |
+| Unrecognized document | `UNSUPPORTED`; no type-specific checks run |
+| Ambiguous or conflicting evidence | `PENDING` and routed to human review |
+| Model arithmetic | Ignored; expected totals are recomputed independently |
+| Provenance | Evidence source, page, backend, model, and decision fingerprint retained |
+
+## Evaluation evidence
+
+The repository includes **210 synthetic, ground-truthed documents** under `evaluation/golden_set/`:
+
+| Set | Documents |
+|---|---:|
+| Invoices | 140 |
+| Purchase orders | 30 |
+| Delivery challans | 15 |
+| Goods receipt notes | 15 |
+| Prompt-injection documents | 10 |
+
+The checked-in deterministic baseline evaluates 200 financial documents and reports 1.00 precision, recall, and F1 for the exercised checks. This is a generated-domain benchmark, not a claim that OCR is perfect on arbitrary real documents. The application exposes incomplete extraction and review-required cases separately.
+
+Run the benchmark:
 
 ```powershell
-# Create and activate virtual environment
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Start V1 Backend Server (Port 8000)
-uvicorn backend.server:app --reload --port 8000
+python evaluation/measure_v2.py --out evaluation/baselines/v2.json
 ```
 
-### 2. Frontend Setup
+Generate and validate a 60-record reconciliation batch:
 
 ```powershell
-cd audit-frontend
+python generate_recon_batch.py --records 60 --seed 42 --out data/recon
+python evaluation/evaluate_recon.py --batch data/recon
+```
+
+## Quick start: V2 demo on Windows
+
+### Prerequisites
+
+- Python 3.11 or newer
+- Node.js and npm
+- [Ollama](https://ollama.com/) with `qwen2.5vl:3b`
+- Docker Desktop only if you want the durable Postgres, MinIO, and Temporal stack
+
+Open the repository in VS Code and use separate PowerShell terminals.
+
+### 1. Install the V2 backend
+
+```powershell
+python -m venv .venv-v2
+Set-ExecutionPolicy -Scope Process Bypass
+& .\.venv-v2\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -e ".\audit_v2[dev]"
+Copy-Item .env.example .env -ErrorAction SilentlyContinue
+```
+
+### 2. Start local vision
+
+```powershell
+ollama pull qwen2.5vl:3b
+ollama serve
+```
+
+On Windows, the Ollama desktop application may already run the service. If `ollama serve` says the address is in use, keep the existing service and continue.
+
+### 3. Start the V2 API
+
+```powershell
+& .\.venv-v2\Scripts\Activate.ps1
+python -m uvicorn audit_v2.server:app --host 127.0.0.1 --port 8100
+```
+
+Confirm [V2 health](http://127.0.0.1:8100/api/v2/health) or open the [API documentation](http://127.0.0.1:8100/docs).
+
+### 4. Start the web interface
+
+```powershell
+Set-Location audit-frontend
 npm install
-npm run dev
+npm run dev -- --host 127.0.0.1
 ```
 
-Open **`http://localhost:5173`** in your browser to access the TrustAudit platform.
+Open [TrustAudit V2](http://127.0.0.1:5173/?mode=v2). Upload several related documents together to populate the dashboard and matching views.
+
+### Optional durable services
+
+The direct demo API can run with its in-memory stores. For Postgres, MinIO, and Temporal-backed development:
+
+```powershell
+docker compose up -d
+python -m audit_v2.orchestration.worker
+```
+
+## Configuration
+
+Copy `.env.example` to `.env`. Safe local defaults are already provided:
+
+```dotenv
+V2_VISION_BACKEND=qwen_ollama
+QWEN_VL_BASE_URL=http://127.0.0.1:11434
+QWEN_VL_MODEL=qwen2.5vl:3b
+QWEN_VL_CONTEXT_LENGTH=4096
+QWEN_VL_MAX_IMAGE_EDGE=1200
+V2_EXTRACTION_POLICY=balanced
+V2_CROSS_CHECK_MODE=on_review
+V2_SUMMARY_MODE=deterministic
+```
+
+GLM-OCR through llama.cpp remains available by setting `V2_VISION_BACKEND=glm_ocr`. NVIDIA configuration is optional and never required for deterministic audit results. Never commit `.env` or API keys.
+
+## Repository map
+
+```text
+audit_v2/                  V2 API, domain, extraction, pipeline and reporting
+audit-frontend/            Shared React UI; open with ?mode=v2 for the submission
+contracts/                 Versioned check catalog, routing rules and JSON schemas
+evaluation/golden_set/     Synthetic PDFs plus one ground-truth manifest per document
+evaluation/measure_v2.py   Deterministic document evaluation harness
+reconcile/                 Payout/bank/ledger reconciliation engine
+tests/                     Unit, regression, gateway and pipeline tests
+docs/                      Architecture, design notes and implementation history
+app/, backend/             Frozen V1 implementation
+```
+
+V1 and V2 intentionally coexist and are kept behind import boundaries: V2 must not import `app/` or `backend/`, and V1 must not import `audit_v2/`.
+
+## Verification
+
+```powershell
+pytest -v
+ruff check audit_v2
+mypy --strict audit_v2/domain
+npm --prefix audit-frontend run build
+```
+
+Schema and import-boundary checks are also available through `make validate-schemas` and `make import-lint` in environments with GNU Make.
+
+## Current limitations
+
+- OCR accuracy still depends on image quality, layout, and local model availability.
+- The direct API stores audit results in memory; restart it to clear the demo corpus.
+- Qwen requests are serialized to remain stable on a 6 GB GPU, so large image batches take time.
+- Unusual or multilingual layouts may require human review.
+- Full Temporal/Postgres integration tests require the Docker services.
+
+See `shortcomings.md` for the complete, actively maintained limitations log and `tracker.md` for implementation history.

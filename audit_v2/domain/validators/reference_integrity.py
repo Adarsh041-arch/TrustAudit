@@ -35,11 +35,24 @@ def check_po_reference(ctx: CheckContext) -> CheckResult:
     return CheckResult.passed("CHK-REF-PO-001")
 
 
+def _is_international_doc(doc: ExtractedDocument) -> bool:
+    all_pvs = [doc.header.grand_total, doc.header.subtotal]
+    for li in doc.line_items:
+        all_pvs.extend([li.line_total, li.unit_price])
+    currencies = {pv.currency.upper() for pv in all_pvs if pv and pv.currency}
+    return bool(currencies and not currencies.intersection({"INR", "RS", "RS.", "₹"}))
+
+
 def check_gstin_format(ctx: CheckContext) -> CheckResult:
     """CHK-REF-GST-001 — GSTIN format is valid (15 chars, alphanumeric)."""
     doc = ctx.document
     gstin = doc.header.vendor_gstin
     if gstin is None or not gstin.value.strip():
+        if _is_international_doc(doc):
+            return CheckResult.skipped(
+                "CHK-REF-GST-001",
+                "GSTIN not applicable for non-GST/international document",
+            )
         return CheckResult.failed(
             "CHK-REF-GST-001",
             expected="valid GSTIN",
@@ -87,10 +100,15 @@ def check_hsn_code(ctx: CheckContext) -> CheckResult:
 
 
 def check_bank_details(ctx: CheckContext) -> CheckResult:
-    """CHK-REF-BANK-001 — bank details (account number, IFSC) are present."""
+    """CHK-REF-BANK-001 — bank details (account number, IFSC/SWIFT/IBAN) are present."""
     doc = ctx.document
     bank = doc.header.bank_details
     if bank is None:
+        if _is_international_doc(doc):
+            return CheckResult.skipped(
+                "CHK-REF-BANK-001",
+                "Bank details optional for international document",
+            )
         return CheckResult.failed(
             "CHK-REF-BANK-001",
             expected="bank details",
@@ -99,9 +117,11 @@ def check_bank_details(ctx: CheckContext) -> CheckResult:
             message="Bank details are missing",
         )
     missing = []
-    if not bank.get("account_number"):
+    has_account = bool(bank.get("account_number") or bank.get("iban"))
+    has_code = bool(bank.get("ifsc") or bank.get("swift") or bank.get("bic"))
+    if not has_account:
         missing.append("account_number")
-    if not bank.get("ifsc"):
+    if not has_code and not _is_international_doc(doc):
         missing.append("ifsc")
     if missing:
         return CheckResult.failed(

@@ -103,3 +103,13 @@ rules:
     tenant_policy: standard
     include_checks:
       - CHK-FORMAT-MANDATORY-001
+
+  - rule_id: ROUTE-COO-001
+    doc_type: certificate_of_origin
+    value_band_min: "0"
+    value_band_max: "1000000000"
+    tenant_policy: standard
+    include_checks:
+      - CHK-CERT-MANDATORY-001
+      - CHK-CERT-GOODS-001
+      - CHK-CERT-REFERENCE-001

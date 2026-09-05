@@ -19,18 +19,18 @@ def _parse_date(pv: ProvenancedValue | None) -> date | None:
     parts = cleaned.split()
     if len(parts) == 3:
         p1, p2, p3 = parts
-        MONTH_NAMES = {
+        month_names = {
             "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
             "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
         }
         p2_lower = p2.lower()[:3]
-        if p2_lower in MONTH_NAMES:
+        if p2_lower in month_names:
             try:
                 day_val = int(p1)
                 year_val = int(p3)
                 if year_val < 100:
                     year_val += 2000
-                return date(year_val, MONTH_NAMES[p2_lower], day_val)
+                return date(year_val, month_names[p2_lower], day_val)
             except ValueError:
                 pass
 

@@ -8,15 +8,15 @@ interface VlmStatusBadgeProps {
 
 const MODE_STYLES: Record<ExtractionMode, { label: string; cls: string }> = {
   dual: {
-    label: 'Dual Extraction (Regex + VLM)',
+    label: 'Grounded extraction (Text + GLM-OCR)',
     cls: 'bg-violet-50 text-violet-600 border-violet-600/30',
   },
   vlm_text: {
-    label: 'VLM Text Extraction',
+    label: 'Local GLM-OCR text extraction',
     cls: 'bg-blue-50 text-blue-600 border-blue-600/30',
   },
   vlm: {
-    label: 'VLM Vision AI',
+    label: 'Grounded local GLM-OCR',
     cls: 'bg-blue-50 text-blue-600 border-blue-600/30',
   },
   regex: {

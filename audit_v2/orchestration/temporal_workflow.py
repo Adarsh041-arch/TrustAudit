@@ -299,7 +299,10 @@ class AuditDocumentWorkflow:
             )
 
         # 7. Persist final status
-        final_status = "READY" if emit_result.coverage_complete else "INCOMPLETE"
+        final_status = (
+            "INCOMPLETE" if not emit_result.coverage_complete
+            else "PENDING" if emit_result.requires_human_review else "READY"
+        )
         await workflow.execute_activity(
             persist_results_activity,
             PersistResultInput(

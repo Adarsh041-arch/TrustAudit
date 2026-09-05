@@ -129,6 +129,11 @@ def _merge_line_items(
         hsn, d = _merge_pv("hsn_sac", line.hsn_sac, match.hsn_sac)
         if d:
             disagreements[f"{prefix}.hsn_sac"] = d
+        quantity_unit, d = _merge_pv(
+            "quantity_unit", line.quantity_unit, match.quantity_unit
+        )
+        if d:
+            disagreements[f"{prefix}.quantity_unit"] = d
         merged.append(LineItem(
             line_number=line.line_number,
             description=desc,
@@ -136,6 +141,7 @@ def _merge_line_items(
             unit_price=price,
             line_total=total,
             hsn_sac=hsn,
+            quantity_unit=quantity_unit,
         ))
     for line in vlm_lines:
         if line.line_number not in used:
@@ -191,6 +197,7 @@ def _merge_tax_lines(
 _HEADER_PV_FIELDS = (
     "vendor_name", "vendor_address", "vendor_gstin", "buyer_name",
     "buyer_gstin", "invoice_date", "due_date", "po_reference",
+    "invoice_number", "po_number", "challan_number", "grn_number",
     "grand_total", "amount_in_words", "order_date", "delivery_date",
     "payment_terms", "delivery_address", "subtotal", "discount_amount",
     "discount_percentage", "opening_balance", "receipts", "payments",
@@ -252,7 +259,17 @@ def merge_extractions(
         coverage=_merge_coverage(regex_doc.coverage, vlm_doc.coverage),
         page_count=max(regex_doc.page_count, vlm_doc.page_count),
         extractor_version=MERGE_VERSION,
+        model_version=vlm_doc.model_version,
+        grounding_rejections=list(vlm_doc.grounding_rejections),
         narrative_report=vlm_doc.narrative_report,
         extraction_disagreements=dict(disagreements),
+        extraction_strategy=vlm_doc.extraction_strategy,
+        vision_backend=vlm_doc.vision_backend,
+        vision_call_count=vlm_doc.vision_call_count,
+        glm_call_count=vlm_doc.glm_call_count,
+        structured_fallback_used=vlm_doc.structured_fallback_used,
+        transcript_cache_hit=vlm_doc.transcript_cache_hit,
+        extraction_latency_ms=vlm_doc.extraction_latency_ms,
+        fallback_reasons=list(vlm_doc.fallback_reasons),
     )
     return MergeResult(merged=merged, disagreements=disagreements)

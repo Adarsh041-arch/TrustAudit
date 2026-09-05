@@ -13,13 +13,14 @@ import { ReconciliationSection } from './sections/ReconciliationSection'
 import { AuditLogViewer } from './sections/AuditLogViewer'
 import { ReviewQueueSection } from './sections/ReviewQueueSection'
 import { DashboardSection } from './sections/DashboardSection'
+import { AuditWorkspace } from './sections/AuditWorkspace'
 import { DocumentCard } from './components/DocumentCard'
 import { StatusBadge } from './components/StatusBadge'
 import { ProcessingAnimation } from './components/ProcessingAnimation'
 import { ReportSection } from './sections/ReportSection'
 import { SettingsSection } from './sections/SettingsSection'
 
-type TabType = 'dashboard' | 'upload' | 'threeway' | 'recon' | 'findings' | 'review' | 'audit_log' | 'reports' | 'settings'
+type TabType = 'dashboard' | 'upload' | 'results' | 'threeway' | 'recon' | 'findings' | 'review' | 'audit_log' | 'reports' | 'settings'
 
 export function AppV2() {
   const { dark, toggle } = useDarkMode()
@@ -32,6 +33,7 @@ export function AppV2() {
   const [allFindings, setAllFindings] = useState<any[]>([])
   const [allReportDocs, setAllReportDocs] = useState<DocumentAuditResult[]>([])
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
+  const [executiveSummary, setExecutiveSummary] = useState('')
   const [threshold, setThreshold] = useState<number>(() => Number(localStorage.getItem('confidence_threshold') ?? 75))
 
   const handleThresholdChange = (t: number) => {
@@ -59,6 +61,8 @@ export function AppV2() {
       if (res.document_results) {
         setAllReportDocs((prev) => [...prev, ...res.document_results])
       }
+      setExecutiveSummary(res.executive_summary ?? '')
+      setActiveTab('dashboard')
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Document ingestion failed')
     } finally {
@@ -77,12 +81,13 @@ export function AppV2() {
       <Header dark={dark} onToggleDark={toggle} title="V2 Engine" />
 
       {/* Main V1 Container */}
-      <main className="max-w-[960px] mx-auto px-6 py-8 space-y-8">
+      <main className="max-w-[1280px] mx-auto px-4 md:px-6 py-8 space-y-8">
         {/* Navigation Bar */}
         <div className="flex flex-wrap gap-2 pb-2 border-b-[0.5px] border-border">
           {[
             { id: 'dashboard', label: 'Dashboard' },
             { id: 'upload', label: 'Live Audit Ingestion' },
+            { id: 'results', label: 'Audit Results' },
             { id: 'threeway', label: '3-Way Match Topology' },
             { id: 'recon', label: 'Payment Reconciliation' },
             { id: 'findings', label: `Findings (${allFindings.length})` },
@@ -106,7 +111,24 @@ export function AppV2() {
         </div>
 
         {/* Dashboard Tab */}
-        {activeTab === 'dashboard' && <DashboardSection documents={allReportDocs} />}
+        {activeTab === 'dashboard' && (
+          <DashboardSection
+            documents={allReportDocs}
+            executiveSummary={executiveSummary}
+            onOpenDocument={(documentId) => {
+              setSelectedDocId(documentId)
+              setActiveTab('results')
+            }}
+          />
+        )}
+
+        {activeTab === 'results' && (
+          <AuditWorkspace
+            documents={allReportDocs}
+            selectedId={selectedDocId}
+            onSelect={setSelectedDocId}
+          />
+        )}
 
         {/* Tab 1: Live Ingestion */}
         {activeTab === 'upload' && (
@@ -286,7 +308,7 @@ export function AppV2() {
                             }`}
                           >
                             <span className="truncate mr-2">{d.document_name}</span>
-                            <StatusBadge passed={d.passed} />
+                            <StatusBadge passed={d.passed} status={d.document_status} />
                           </button>
                         ))}
                       </div>
@@ -298,7 +320,7 @@ export function AppV2() {
                             Human review recommended (confidence {selectedDoc.confidence_score.toFixed(1)}%).
                           </div>
                         )}
-                        <DocumentCard doc={selectedDoc} interval={uploadResult.prediction_interval} />
+                        <DocumentCard doc={selectedDoc} />
                       </>
                     )}
                   </FlatCard>
@@ -360,7 +382,9 @@ export function AppV2() {
         {activeTab === 'audit_log' && <AuditLogViewer />}
 
         {/* Tab 6: Reports */}
-        {activeTab === 'reports' && <ReportSection documents={allReportDocs} findings={allFindings} />}
+        {activeTab === 'reports' && (
+          <ReportSection documents={allReportDocs} findings={allFindings} executiveSummary={executiveSummary} />
+        )}
 
         {/* Tab 7: Settings */}
         {activeTab === 'settings' && <SettingsSection threshold={threshold} onThresholdChange={handleThresholdChange} />}

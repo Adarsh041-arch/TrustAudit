@@ -102,6 +102,39 @@ class TestBuildClusters:
         assert all(link.method == LinkMethod.EXPLICIT_REFERENCE for link in c.links)
         assert c.purchase_order is not None
 
+    def test_po_anchors_on_printed_number_not_ingest_hash(self):
+        """Regression: an invoice citing the PO's printed number must cluster
+        with the PO even after ingest overwrites the top-level document_id with
+        a per-upload hash (doc_XXXX). The old code anchored the PO on that hash,
+        so the invoice fell into a PO-less cluster and PRICE/CUMUL silently
+        SKIPped — the root cause of the same invoice scoring differently as a
+        PDF vs a photo.
+        """
+        p = po(doc_id="PO-2026-118", total="100000.00")
+        i = inv("INV-2026-453", po_ref="PO-2026-118", total="50000.00")
+        # Simulate ingest: top-level id becomes a hash; header keeps the number.
+        p.document_id = "doc_6ccb2642"
+        i.document_id = "doc_b11b2961"
+        clusters = build_clusters([p, i])
+        assert len(clusters) == 1
+        c = clusters[0]
+        assert c.purchase_order is not None
+        assert c.purchase_order.document_id == "doc_6ccb2642"
+        assert {d.document_id for d in c.documents} == {"doc_6ccb2642", "doc_b11b2961"}
+
+    def test_po_business_number_falls_back_to_po_reference(self):
+        """VLM-only PO extraction leaves header.document_id as a placeholder
+        ('vlm_doc'); the PO's own number lands in po_reference. Linkage on the
+        printed number must still work via the fallback."""
+        p = po(doc_id="vlm_doc", total="100000.00")
+        p.header.po_reference = pv("PO-2026-118")
+        p.document_id = "doc_aaaa1111"
+        i = inv("INV-1", po_ref="PO-2026-118", total="50000.00")
+        i.document_id = "doc_bbbb2222"
+        clusters = build_clusters([p, i])
+        assert len(clusters) == 1
+        assert clusters[0].purchase_order is not None
+
     def test_no_reference_falls_back_to_vendor_amount_date(self):
         anchor = inv("INV-A", po_ref="PO-9", total="5000.00")
         stray = make_doc("INV-B", DocumentType.INVOICE, grand_total="5000.00",
@@ -291,6 +324,20 @@ class TestDuplicateDetection:
         r = duplicate.check_duplicate_document(
             ctx(a, "CHK-DUP-DOC-001", corpus_index=index))
         assert r.status == FindingStatus.PASS
+
+    def test_cross_type_same_amount_date_not_duplicate(self):
+        """A PO sharing an invoice's vendor+amount+date is a legitimate match,
+        not a duplicate. The near-key is scoped to document type."""
+        i = inv("INV-1", total="5000.00", inv_date="2026-06-10")
+        p = make_doc("PO-1", DocumentType.PURCHASE_ORDER,
+                     grand_total="5000.00", inv_date="2026-06-10")
+        index = build_corpus_index([i, p])
+        r_inv = duplicate.check_duplicate_document(
+            ctx(i, "CHK-DUP-DOC-001", corpus_index=index))
+        r_po = duplicate.check_duplicate_document(
+            ctx(p, "CHK-DUP-DOC-001", corpus_index=index))
+        assert r_inv.status == FindingStatus.PASS
+        assert r_po.status == FindingStatus.PASS
 
     def test_skips_without_index(self):
         r = duplicate.check_duplicate_document(ctx(inv(), "CHK-DUP-DOC-001"))

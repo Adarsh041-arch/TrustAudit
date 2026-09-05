@@ -27,7 +27,8 @@ def compute_prediction_interval(scores: list[float]) -> dict[str, float]:
 def aggregate_results(documents: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(documents)
     passed = sum(1 for d in documents if d.get("passed"))
-    avg = sum(d.get("score", 0.0) for d in documents) / total if total else 0.0
+    scored = [float(d["score"]) for d in documents if d.get("score") is not None]
+    avg = sum(scored) / len(scored) if scored else 0.0
     violations = sum(len(d.get("failed_rules", [])) for d in documents)
     high_risk = sum(1 for d in documents if d.get("risk_level") == "High Risk")
 
@@ -48,7 +49,7 @@ def aggregate_results(documents: list[dict[str, Any]]) -> dict[str, Any]:
     violation_frequency = sorted(freq.values(), key=lambda e: e["count"], reverse=True)
 
     compliance_trends = [
-        {"name": d.get("document_name", "?"), "score": d.get("score", 0.0)} for d in documents
+        {"name": d.get("document_name", "?"), "score": d.get("score")} for d in documents
     ]
 
     type_counts = Counter(d.get("document_type", "unknown") for d in documents)

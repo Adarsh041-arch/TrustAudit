@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -10,6 +11,7 @@ from audit_v2.domain.catalog_loader import entries_by_id, load_catalog
 from audit_v2.domain.finding_generator import make_finding_from_result
 from audit_v2.domain.models import (
     CheckDeterminism,
+    ClassificationStatus,
     DocumentStatus,
     ExtractedDocument,
     FailureClass,
@@ -246,10 +248,10 @@ class AuditWorkflow:
                 if inp.current_date:
                     if isinstance(inp.current_date, str):
                         from datetime import datetime
-                        try:
-                            current_date_val = datetime.strptime(inp.current_date, "%Y-%m-%d").date()
-                        except ValueError:
-                            pass
+                        with suppress(ValueError):
+                            current_date_val = datetime.strptime(
+                                inp.current_date, "%Y-%m-%d",
+                            ).date()
                     elif isinstance(inp.current_date, date):
                         current_date_val = inp.current_date
 
@@ -265,20 +267,27 @@ class AuditWorkflow:
                 # PHASES_V2 §4 Phase 8: extractor disagreement routes to human
                 # review. The adjudicator may never overturn deterministic
                 # verdicts; it only flags the disagreement.
-                requires_human_review = bool(normalized.extraction_disagreements)
-                if requires_human_review:
+                requires_human_review = bool(
+                    normalized.extraction_disagreements
+                    or normalized.grounding_rejections
+                    or normalized.classification_status != ClassificationStatus.CONFIRMED
+                )
+                if normalized.extraction_disagreements:
                     adjudication = Adjudicator().adjudicate(AdjudicationRequest(
                         document_id=inp.document_id,
                         tenant_id=inp.tenant_id,
                         deterministic_findings=stored_findings,
                         extraction_disagreements=normalized.extraction_disagreements,
                     ))
-                    requires_human_review = adjudication.requires_human_review
+                    requires_human_review = (
+                        requires_human_review or adjudication.requires_human_review
+                    )
 
                 # PHASES_V2 §3.5: a document whose pages were not all examined
                 # cannot be reported as complete, regardless of findings.
                 final_status = (
-                    "READY" if normalized.coverage.coverage_complete else "INCOMPLETE"
+                    "INCOMPLETE" if not normalized.coverage.coverage_complete
+                    else "PENDING" if requires_human_review else "READY"
                 )
                 store.update_status(inp.document_id, final_status)
                 return AuditWorkflowOutput(

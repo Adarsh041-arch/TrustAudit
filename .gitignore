@@ -1,5 +1,6 @@
 # Python
 venv/
+.venv*/
 __pycache__/
 *.pyc
 .env
@@ -15,6 +16,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.claude/
 
 # Generated
 sample_docs/Bill*.pdf
@@ -24,9 +26,15 @@ sample_docs/RS*.pdf
 # Test artifacts
 .coverage
 .pytest_cache/
+.test-tmp*/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+.import_linter_cache/
 htmlcov/
+coverage.xml
+*.log
+*.tsbuildinfo
 *.egg-info/
 .superpowers/
 

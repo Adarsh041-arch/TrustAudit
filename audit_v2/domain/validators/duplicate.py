@@ -30,7 +30,9 @@ def check_duplicate_document(ctx: CheckContext) -> CheckResult:
         if dupes:
             return _fail(ctx, check_id, "vendor+document_number", dupes)
 
-    # Near: same vendor + same amount + same date under a different number.
+    # Near: same vendor + same amount + same date under a different number,
+    # scoped to the same document type (a PO/contract/certificate sharing an
+    # invoice's amount+date is a legitimate match, not a duplicate).
     if vendor and doc.header.grand_total is not None:
         date_pv = doc.header.invoice_date or doc.header.order_date
         if date_pv is not None:
@@ -39,7 +41,7 @@ def check_duplicate_document(ctx: CheckContext) -> CheckResult:
             except ValueError:
                 amount = None
             if amount is not None:
-                key = f"{vendor}||{amount}||{date_pv.value}"
+                key = f"{vendor}||{doc.doc_type.value}||{amount}||{date_pv.value}"
                 dupes = _others(index.by_vendor_amount_date.get(key, []))
                 if dupes:
                     return _fail(ctx, check_id, "vendor+amount+date", dupes)

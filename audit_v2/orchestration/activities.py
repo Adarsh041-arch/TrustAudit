@@ -5,8 +5,18 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from audit_v2.domain.models import TEXT_DOC_TYPES, DocumentStatus, DocumentType, ExtractedDocument, ProvenancedValue
-from audit_v2.extraction.classifier import EXTRACTOR_REGISTRY
+from audit_v2.domain.models import (
+    TEXT_DOC_TYPES,
+    DocumentStatus,
+    DocumentType,
+    ExtractedDocument,
+    ProvenancedValue,
+)
+from audit_v2.extraction.classifier import (
+    EXTRACTOR_REGISTRY,
+    classify_document_detailed,
+    classify_document_from_data_detailed,
+)
 from audit_v2.extraction.merge import merge_extractions
 from audit_v2.extraction.text_extractor import TextExtractor
 from audit_v2.ingestion.document_store import DocumentRecord, DocumentStore
@@ -183,17 +193,50 @@ def extract_with_vlm(
     document_id: str,
     tenant_id: str,
 ) -> ExtractionResult:
-    """VLM-only extraction — the model half of the dual pass."""
-    if not os.getenv("NVIDIA_API_KEY"):
-        return ExtractionResult(error="NVIDIA_API_KEY not set — VLM pass skipped")
+    """Grounded local vision extraction — the model half of the dual pass."""
+    if os.getenv("V2_VISION_BACKEND", "qwen_ollama") == "none":
+        return ExtractionResult(error="Local vision extraction is disabled")
     try:
-        from audit_v2.extraction.vlm_extractor import VlmExtractor
-        doc = VlmExtractor().extract(data, mime_type)
-        doc.document_id = document_id
-        doc.tenant_id = tenant_id
+        from audit_v2.extraction.vlm_extractor import render_pages_to_jpeg
+        from audit_v2.gateway.vision_factory import create_vision_gateway
+        from audit_v2.pipeline.evidence_pipeline import _run_glm_pages
+
+        images = render_pages_to_jpeg(data, mime_type)
+        if not images:
+            return ExtractionResult(error="No document pages could be rendered")
+        gateway = create_vision_gateway()
+        if gateway is None:
+            return ExtractionResult(error="Local vision extraction is disabled")
+        decision = classify_document_from_data_detailed(data, mime_type)
+        transcripts: dict[int, str] = {}
+        if decision.doc_type == DocumentType.UNKNOWN:
+            response = gateway.extract(
+                images=[images[0]], prompt="Text Recognition:", tenant_id=tenant_id,
+            )
+            transcripts[1] = response.content.strip()
+            decision = classify_document_detailed(
+                transcripts[1],
+                method=f"{getattr(gateway, 'backend', 'local_vision')}_transcription",
+                page=1,
+            )
+        doc_type = decision.doc_type
+        doc, _ = _run_glm_pages(
+            images=images,
+            document_id=document_id,
+            tenant_id=tenant_id,
+            doc_type=doc_type,
+            gateway=gateway,
+            evidences=[],
+            transcripts=transcripts,
+        )
+        doc.classification_status = decision.status
+        doc.classification_confidence = decision.confidence
+        doc.classification_method = decision.method
+        doc.classification_evidence = decision.evidence
+        doc.alternative_types = decision.alternative_types
         return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
     except Exception as exc:
-        logger.warning("VLM extraction failed for %s: %s", document_id, exc)
+        logger.warning("GLM-OCR extraction failed for %s: %s", document_id, exc)
         return ExtractionResult(error=str(exc))
 
 
@@ -204,18 +247,15 @@ def extract_text_with_vlm(
     tenant_id: str,
     doc_type: DocumentType,
 ) -> ExtractionResult:
-    """VLM-only extraction for free-text documents (contract/letter)."""
-    if not os.getenv("NVIDIA_API_KEY"):
-        return ExtractionResult(error="VLM text extraction requires NVIDIA_API_KEY")
+    """Grounded GLM-OCR extraction for free-text documents."""
     try:
-        from audit_v2.extraction.text_doc_extractor import VlmTextExtractor
-        doc = VlmTextExtractor().extract(data, mime_type)
-        doc.document_id = document_id
-        doc.tenant_id = tenant_id
-        doc.doc_type = doc_type
-        return ExtractionResult(document=doc, text=_raw_text(data, mime_type))
+        result = extract_with_vlm(data, mime_type, document_id, tenant_id)
+        if result.document is not None and doc_type != DocumentType.UNKNOWN:
+            result.document.doc_type = doc_type
+            result.document.header.doc_type = doc_type
+        return result
     except Exception as exc:
-        logger.warning("VLM text extraction failed for %s: %s", document_id, exc)
+        logger.warning("GLM-OCR text extraction failed for %s: %s", document_id, exc)
         return ExtractionResult(error=str(exc))
 
 

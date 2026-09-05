@@ -1,8 +1,8 @@
 import type { PredictionInterval } from '../types/audit'
 
 interface ScoreDisplayProps {
-  score: number
-  interval: PredictionInterval
+  score: number | null
+  interval: PredictionInterval | null
   size?: 'normal' | 'large'
 }
 
@@ -11,12 +11,21 @@ export function ScoreDisplay({ score, interval, size = 'normal' }: ScoreDisplayP
 
   return (
     <div className="inline-flex flex-col items-start">
+      {score === null ? (
+        <>
+          <span className={`${valueSize} font-medium text-slate-500 leading-none`}>Not audited</span>
+          <span className="text-[13px] text-muted mt-1">Classification review required</span>
+        </>
+      ) : (
+        <>
       <span className={`${valueSize} font-medium text-teal-600 leading-none`}>
         {score.toFixed(1)}%
       </span>
-      <span className="text-[13px] text-muted mt-1">
+      {interval && <span className="text-[13px] text-muted mt-1">
         {interval.lower.toFixed(1)}% – {interval.upper.toFixed(1)}%
-      </span>
+      </span>}
+        </>
+      )}
     </div>
   )
 }

@@ -472,7 +472,7 @@ function App() {
                         }}>
                           <td className="py-3.5 pr-4 font-semibold text-ink max-w-[220px] truncate">{doc.document_name}</td>
                           <td className="py-3.5 px-4 text-muted uppercase text-[11px] tracking-wider">{doc.document_type.replace('_', ' ')}</td>
-                          <td className="py-3.5 px-4 font-mono font-bold text-ink">{doc.score.toFixed(1)}%</td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-ink">{doc.score === null ? 'Not audited' : `${doc.score.toFixed(1)}%`}</td>
                           <td className="py-3.5 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${
                               doc.risk_level === 'High Risk' 
@@ -539,7 +539,7 @@ function App() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted">Audit Score:</span>
-                    <span className="font-mono font-bold text-ink">{currentDoc.score.toFixed(1)}%</span>
+                    <span className="font-mono font-bold text-ink">{currentDoc.score === null ? 'Not audited' : `${currentDoc.score.toFixed(1)}%`}</span>
                   </div>
                 </div>
               </div>

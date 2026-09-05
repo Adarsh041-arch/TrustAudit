@@ -20,7 +20,7 @@ TENANT = "recon"
 DATE_GRACE_DAYS = 3
 #: Recon calls are text-only. The default VLM (DiffusionGemma) returns empty
 #: content for image-free prompts, so text chat goes to a text-tuned model.
-DEFAULT_TEXT_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_TEXT_MODEL = "meta/llama-3.3-70b-instruct"
 
 
 def make_text_gateway(**kwargs) -> NvidiaGateway:

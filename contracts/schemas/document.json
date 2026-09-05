@@ -23,7 +23,7 @@
     },
     "doc_type": {
       "type": "string",
-      "enum": ["invoice", "purchase_order", "delivery_challan", "goods_receipt_note", "contract", "letter"]
+      "enum": ["invoice", "purchase_order", "delivery_challan", "goods_receipt_note", "contract", "letter", "certificate_of_origin", "unknown"]
     },
     "doc_type_confidence": {
       "type": "number",
@@ -43,7 +43,7 @@
       "enum": [
         "RECEIVED", "VALIDATED", "SCANNED", "RENDERED", "EXTRACTED",
         "NORMALIZED", "READY", "PENDING", "FAILED", "QUARANTINED",
-        "QUARANTINED_SECURITY", "INCOMPLETE"
+        "QUARANTINED_SECURITY", "INCOMPLETE", "UNSUPPORTED"
       ]
     },
     "extractor_version": {

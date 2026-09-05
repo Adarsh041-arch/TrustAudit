@@ -9,7 +9,7 @@ function Root() {
     const urlParams = new URLSearchParams(window.location.search);
     const modeParam = urlParams.get('mode');
     if (modeParam === 'v2') return 'v2';
-    return (localStorage.getItem('app_mode') as 'v1' | 'v2') || 'v1';
+    return (localStorage.getItem('app_mode') as 'v1' | 'v2') || 'v2';
   });
 
   const toggleMode = (newMode: 'v1' | 'v2') => {
