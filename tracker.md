@@ -775,6 +775,7 @@ ormalize_locale(s_val, None) (value="525000.00", raw preserved). Covers vlm_extr
 | CLN1 | `backend/server_v2.py` | Removed stale duplicate file `backend/server_v2.py` that violated the `import-linter` boundary contract (V1 must not import V2). | done |
 | CLN2 | `audit_v2/server.py`, `audit_v2/gateway/nvidia_gateway.py`, `audit_v2/domain/validators/temporal.py` | Fixed Ruff linter errors (E402 import positioning, N806 variable naming, E501 line length, SIM105 try-except-pass, B008 noqa annotations, B904 exception chaining). Ruff `audit_v2/` now passes 100%. | done |
 | CLN3 | `tests/test_server_v2.py`, `tests/test_streaming.py` | Fixed sample PDF paths and loading fallbacks to use existing `Commercial_Invoice_INV-2026-453.pdf` in `sample_docs/`. All 138 V2 tests now pass cleanly. | done |
-| CLN4 | `.gitignore`, `PHASES_V2.md`, `Phases.md` | Restored core architecture docs and verified `.gitignore` filters temporary artifacts cleanly. | done |
+| CLN4 | `.gitignore` | Verified `.gitignore` filters temporary artifacts cleanly. | done |
+| CLN5 | `AGENTS.md`, `PHASES_V2.md`, `Phases.md`, `PHASE2_PLAN.md`, `test_litert.py`, `test_nvidia.py`, `generate_test_bill.py` | Removed redundant agent instructions, phase planning documents, and standalone root test scripts from git tracking per user request. | done |
 
 **Verification:** `lint-imports` passed 3/3 contracts kept; `ruff check audit_v2/` passed 100%; `mypy --strict audit_v2/domain/` passed 19 files; `pytest` suite passed 138/138 tests.
