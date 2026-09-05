@@ -112,6 +112,36 @@ def test_cross_check_survives_bad_reply(make_gateway) -> None:
     assert result.contradictions == []
 
 
+def test_cross_check_filters_null_and_zero_omissions(make_gateway) -> None:
+    reply = json.dumps(
+        {
+            "supported": False,
+            "contradictions": [
+                {
+                    "nature": "ocr+regex_observations",
+                    "evidence": "po_reference=null",
+                    "reason": "Regex extraction reports po_reference null while OCR and VLM report PO-2026-118",
+                    "confidence": 0.95,
+                    "severity": "medium",
+                },
+                {
+                    "nature": "ocr+regex_observations",
+                    "evidence": "line_item_count=0",
+                    "reason": "Regex reports zero line items but VLM extraction shows one line item",
+                    "confidence": 0.92,
+                    "severity": "medium",
+                },
+            ],
+            "summary": "contradictions found",
+        }
+    )
+    result = run_cross_check(
+        [_evidence()], "doc1", DocumentType.INVOICE, "t", gateway=make_gateway(reply),
+    )
+    assert result.supported is True
+    assert result.contradictions == []
+
+
 # ─── deterministic authority (server reconciliation) ─────────────────────────
 
 

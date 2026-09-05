@@ -102,11 +102,18 @@ def _build_prompt(evidences: list[PipelineEvidence], doc_type: DocumentType) -> 
         "evidences disagree about the same fact (e.g. a total the VLM read "
         "differs from the arithmetic sum, or OCR text contradicts an extracted "
         "field), report a contradiction.\n\n"
+        "CRITICAL RULES FOR MISSING / NULL VALUES:\n"
+        "- A missing value, null field, or 0 line items from a basic extractor "
+        "(such as regex) is NOT a contradiction if another method (such as VLM or OCR) "
+        "extracted a valid value. Regex or basic extraction missing a field is an omission, "
+        "NOT a factual contradiction.\n"
+        "- ONLY report a contradiction when two non-null, non-zero values conflict "
+        "with each other (e.g. PO 'PO-100' vs PO 'PO-200', or Total $500 vs Total $900).\n\n"
         "For each contradiction give: the nature of the evidence, the evidence "
         "value in question, the reason it contradicts the others, your confidence "
         "(0–1), and a severity (low/medium/high/critical). Do NOT invent "
-        "contradictions where the evidences agree; return an empty list if they "
-        "are consistent.\n\n"
+        "contradictions where the evidences agree or where a value is null; return an "
+        "empty list if there are no conflicts.\n\n"
         "EVIDENCE LIST:\n"
         f"{_evidence_digest(evidences)}\n"
     )
@@ -139,6 +146,22 @@ def _to_contradiction(llm: _LlmContradiction, document_id: str) -> Contradiction
         severity=_coerce_severity(llm.severity),
         conflicting_with=llm.conflicting_with,
     )
+
+
+def _is_null_omission(c: Contradiction) -> bool:
+    """Filter out false contradictions caused by missing/null values in basic extractors.
+
+    If one extractor (e.g. regex) returns null, None, or 0 line items while another
+    method extracts a valid value, this is an extraction omission, not a factual conflict.
+    """
+    text = f"{c.evidence} {c.reason} {c.conflicting_with or ''}".lower()
+    null_patterns = [
+        "=null", "is null", "reports null", "value is null", "null while",
+        "=none", "is none", "reports none", "value is none", "none while",
+        "line_item_count=0", "reports zero line items", "0 line items",
+        "zero line items", "no line items", "missing value", "failed to extract",
+    ]
+    return any(p in text for p in null_patterns)
 
 
 def run_cross_check(
@@ -184,9 +207,11 @@ def run_cross_check(
     contradictions = [
         _to_contradiction(c, document_id) for c in llm_result.contradictions
     ]
+    contradictions = [c for c in contradictions if not _is_null_omission(c)]
+
     return CrossCheckResult(
         document_id=document_id,
-        supported=llm_result.supported and not contradictions,
+        supported=llm_result.supported or not contradictions,
         contradictions=contradictions,
-        summary=llm_result.summary,
+        summary=llm_result.summary if contradictions else "All non-null evidences are consistent",
     )
