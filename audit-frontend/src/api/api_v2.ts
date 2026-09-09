@@ -1,3 +1,4 @@
+import { apiFetch } from './http'
 /**
  * Audit V2 API Client — Communicates with FastAPI on port :8100
  */
@@ -37,6 +38,8 @@ export interface UploadResponse {
   requires_human_review: boolean
   extraction_results?: ExtractionResultEntry[]
   document_results: DocumentAuditResult[]
+  updated_document_results?: DocumentAuditResult[]
+  failed_uploads?: Array<{filename: string; status: string; error: string}>
   prediction_interval: PredictionInterval
   analytics: any
   executive_summary: string
@@ -56,7 +59,7 @@ export async function askAuditCopilotV2(
   question: string,
   chatHistory: { role: 'user' | 'assistant'; content: string }[] = []
 ): Promise<CopilotReply> {
-  const res = await fetch(`${V2_BASE}/copilot/chat`, {
+  const res = await apiFetch(`${V2_BASE}/copilot/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -94,6 +97,7 @@ export interface ReviewQueueResponse {
   count: number
   pending_items: {
     item_id: string
+    version: number
     document_id: string
     priority_score: number
     finding: any
@@ -111,7 +115,7 @@ export async function uploadDocumentsV2(
   const fileArray = Array.from(files)
   fileArray.forEach((f) => formData.append('files', f))
 
-  const res = await fetch(`${V2_BASE}/audit/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
+  const res = await apiFetch(`${V2_BASE}/audit/upload?tenant_id=${encodeURIComponent(tenantId)}`, {
     method: 'POST',
     body: formData,
   })
@@ -139,7 +143,7 @@ export async function uploadDocumentsStreamV2(
   const formData = new FormData()
   Array.from(files).forEach((f) => formData.append('files', f))
 
-  const res = await fetch(
+  const res = await apiFetch(
     `${V2_BASE}/audit/upload/stream?tenant_id=${encodeURIComponent(tenantId)}`,
     { method: 'POST', body: formData }
   )
@@ -170,62 +174,43 @@ export interface PipelineHandlers {
  * @returns an unsubscribe function that closes the stream.
  */
 export function subscribePipeline(jobId: string, handlers: PipelineHandlers): () => void {
-  const es = new EventSource(`${V2_BASE}/audit/stream/${encodeURIComponent(jobId)}`)
-  let done = false
-
-  const parse = <T,>(e: Event): T | null => {
+  const controller = new AbortController()
+  void (async () => {
     try {
-      return JSON.parse((e as MessageEvent).data) as T
-    } catch {
-      return null
+      const response = await apiFetch(`${V2_BASE}/audit/stream/${encodeURIComponent(jobId)}`, { signal: controller.signal })
+      if (!response.ok || !response.body) throw new Error(`Cannot open audit stream (${response.status})`)
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let pending = ''
+      while (true) {
+        const {done, value} = await reader.read()
+        pending += decoder.decode(value, {stream: !done}).replaceAll('\r\n','\n')
+        let boundary: number
+        while ((boundary = pending.indexOf('\n\n')) >= 0) {
+          const frame = pending.slice(0,boundary); pending = pending.slice(boundary+2)
+          const kind = frame.split('\n').find(l => l.startsWith('event:'))?.slice(6).trim()
+          const raw = frame.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5).trim()).join('\n')
+          if (!raw) continue
+          const data = JSON.parse(raw)
+          if (kind === 'open') handlers.onOpen?.(data.job_id)
+          if (kind === 'step') handlers.onStep(data)
+          if (kind === 'result') { handlers.onResult(data); await reader.cancel(); return }
+          if (kind === 'error') { handlers.onError(data.message); await reader.cancel(); return }
+        }
+        if (done) throw new Error('Connection ended before the final result. The audit may still be running.')
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) handlers.onError(error instanceof Error ? error.message : 'Audit connection failed')
     }
-  }
-
-  es.addEventListener('open', (e) => {
-    const payload = parse<{ job_id: string }>(e)
-    if (payload) handlers.onOpen?.(payload.job_id)
-  })
-
-  es.addEventListener('step', (e) => {
-    const payload = parse<StepEvent>(e)
-    if (payload) handlers.onStep(payload)
-  })
-
-  es.addEventListener('result', (e) => {
-    done = true
-    es.close()
-    const payload = parse<UploadResponse>(e)
-    if (payload) handlers.onResult(payload)
-    else handlers.onError('Received a malformed result from the audit stream')
-  })
-
-  // The server's own `error` frame carries data; a transport error does not.
-  es.addEventListener('error', (e) => {
-    if (done) return
-    const payload = parse<{ message: string }>(e)
-    if (payload) {
-      done = true
-      es.close()
-      handlers.onError(payload.message)
-    } else {
-      // Connection dropped — stop retrying and let the caller poll for a result.
-      done = true
-      es.close()
-      handlers.onError('Lost connection to the audit stream')
-    }
-  })
-
-  return () => {
-    done = true
-    es.close()
-  }
+  })()
+  return () => controller.abort()
 }
 
 /** Reconnect fallback: fetch a finished job's result after the SSE dropped. */
 export async function fetchJobResult(
   jobId: string
 ): Promise<{ status: 'running' } | { status: 'done'; result: UploadResponse }> {
-  const res = await fetch(`${V2_BASE}/audit/result/${encodeURIComponent(jobId)}`)
+  const res = await apiFetch(`${V2_BASE}/audit/result/${encodeURIComponent(jobId)}`)
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null)
     throw new Error(errorBody?.detail || `Result fetch failed with status ${res.status}`)
@@ -236,7 +221,7 @@ export async function fetchJobResult(
 export async function fetchFindingsV2(
   tenantId: string = 'tenant_default'
 ): Promise<any[]> {
-  const res = await fetch(`${V2_BASE}/audit/findings?tenant_id=${encodeURIComponent(tenantId)}`)
+  const res = await apiFetch(`${V2_BASE}/audit/findings?tenant_id=${encodeURIComponent(tenantId)}`)
   if (!res.ok) throw new Error(`Failed to fetch findings (${res.status})`)
   return res.json()
 }
@@ -258,7 +243,7 @@ export interface EvalResponse {
 }
 
 export async function fetchEvalV2(): Promise<EvalResponse> {
-  const res = await fetch(`${V2_BASE}/audit/eval`)
+  const res = await apiFetch(`${V2_BASE}/audit/eval`)
   if (!res.ok) throw new Error(`Eval fetch failed with status ${res.status}`)
   return res.json()
 }
@@ -270,7 +255,7 @@ export async function downloadReportV2(
   auditTitle = 'Audit V2 Report',
   executiveSummary = '',
 ): Promise<Blob> {
-  const res = await fetch(`${V2_BASE}/audit/report?format=${format}`, {
+  const res = await apiFetch(`${V2_BASE}/audit/report?format=${format}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ documents, findings, audit_title: auditTitle, executive_summary: executiveSummary }),
@@ -280,13 +265,13 @@ export async function downloadReportV2(
 }
 
 export async function fetchAuditLogV2(tenantId: string = 'tenant_default'): Promise<AuditLogResponse> {
-  const res = await fetch(`${V2_BASE}/audit/log?tenant_id=${encodeURIComponent(tenantId)}`)
+  const res = await apiFetch(`${V2_BASE}/audit/log?tenant_id=${encodeURIComponent(tenantId)}`)
   if (!res.ok) throw new Error(`Failed to fetch audit log (${res.status})`)
   return res.json()
 }
 
 export async function fetchReviewQueueV2(): Promise<ReviewQueueResponse> {
-  const res = await fetch(`${V2_BASE}/audit/review-queue`)
+  const res = await apiFetch(`${V2_BASE}/audit/review-queue`)
   if (!res.ok) throw new Error(`Failed to fetch review queue (${res.status})`)
   return res.json()
 }
@@ -295,9 +280,10 @@ export async function submitReviewV2(
   itemId: string,
   action: 'confirm' | 'reject_as_false_positive' | 'escalate',
   reviewerId: string = 'reviewer_1',
-  comments?: string
+  comments?: string,
+  expectedVersion = 0
 ): Promise<any> {
-  const res = await fetch(`${V2_BASE}/audit/review`, {
+  const res = await apiFetch(`${V2_BASE}/audit/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -305,11 +291,18 @@ export async function submitReviewV2(
       action,
       reviewer_id: reviewerId,
       comments,
+      expected_version: expectedVersion,
     }),
   })
   if (!res.ok) {
     const errorBody = await res.json().catch(() => null)
     throw new Error(errorBody?.detail || `Review submission failed (${res.status})`)
   }
+  return res.json()
+}
+
+export async function fetchWorkspaceV2(): Promise<{document_results: DocumentAuditResult[]; findings: any[]}> {
+  const res = await apiFetch(`${V2_BASE}/audit/workspace`)
+  if (!res.ok) throw new Error(`Could not load saved audits (${res.status})`)
   return res.json()
 }

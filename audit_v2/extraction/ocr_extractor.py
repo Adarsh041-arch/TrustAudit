@@ -13,6 +13,7 @@ Design constraints:
 - **Lazy + cached engine.** ``RapidOCR()`` loads a few ONNX models; build it
   once on first use and reuse it (models ship inside the wheel, so no network).
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ import re
 from contextlib import suppress
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any, Protocol
 
 from audit_v2.domain.models import DocumentType
 from audit_v2.extraction.parser import extract_po_reference, parse_amount
@@ -74,19 +76,23 @@ class OcrResult:
 # Module-level engine cache. RapidOCR construction is heavy (loads det/cls/rec
 # ONNX models); we want exactly one instance per process, built lazily so an
 # environment without the package pays nothing and never crashes on import.
-_ENGINE: object | None = None
+class OcrEngine(Protocol):
+    def __call__(self, image: bytes) -> tuple[list[list[Any]] | None, Any]: ...
+
+
+_ENGINE: OcrEngine | None = None
 _ENGINE_TRIED = False
 _ENGINE_ERROR: str | None = None
 
 
-def _get_engine() -> object | None:
+def _get_engine() -> OcrEngine | None:
     """Return a cached RapidOCR engine, or None if it cannot be constructed."""
     global _ENGINE, _ENGINE_TRIED, _ENGINE_ERROR
     if _ENGINE_TRIED:
         return _ENGINE
     _ENGINE_TRIED = True
     try:
-        from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-not-found]
+        from rapidocr_onnxruntime import RapidOCR  # type: ignore[import-untyped]
     except ImportError as err:
         _ENGINE_ERROR = f"rapidocr-onnxruntime not installed ({err})"
         logger.info("OCR unavailable: %s", _ENGINE_ERROR)
@@ -142,9 +148,15 @@ class RapidOcrExtractor:
 
         text = result.full_text
         amounts = self._amounts(text)
-        grand_total = self._labelled_total(text) if doc_type in {
-            DocumentType.INVOICE, DocumentType.PURCHASE_ORDER,
-        } else None
+        grand_total = (
+            self._labelled_total(text)
+            if doc_type
+            in {
+                DocumentType.INVOICE,
+                DocumentType.PURCHASE_ORDER,
+            }
+            else None
+        )
         fields: dict = {
             "available": True,
             "mean_confidence": result.mean_confidence,

@@ -1,4 +1,5 @@
 import type { PipelineStepName, StepStatusName } from '../types/audit'
+import { Check, Loader2, AlertCircle, Minus, Sparkles } from 'lucide-react'
 
 /** Per-document progress accumulated from the SSE `step` events. */
 export interface DocProgress {
@@ -24,66 +25,101 @@ interface PipelineProgressProps {
   docs: DocProgress[]
 }
 
-/**
- * Live per-document pipeline progress (new_requirements.md §6). Renders one row
- * per document, each with the ordered pipeline steps coloured by their latest
- * streamed status. Steps that never arrive stay faint (e.g. VLM/cross-check are
- * skipped when no API key is configured).
- */
 export function PipelineProgress({ docs }: PipelineProgressProps) {
   if (docs.length === 0) return null
+
   return (
-    <div className="mt-4 space-y-3">
-      {docs.map((d) => (
-        <div
-          key={d.document_id}
-          className="p-3 rounded-lg bg-surface-1 border-[0.5px] border-border"
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[13px] font-medium text-ink truncate mr-2">{d.filename}</span>
-            <span className="text-[11px] text-muted font-mono shrink-0">{d.document_id}</span>
+    <div className="mt-5 space-y-3.5">
+      <div className="flex items-center justify-between text-[12px] text-muted font-medium">
+        <span className="flex items-center gap-1.5 text-teal-600 dark:text-teal-400">
+          <Sparkles className="w-3.5 h-3.5" />
+          Real-Time Streaming Audit Pipeline (SSE)
+        </span>
+        <span>{docs.length} document stream(s) active</span>
+      </div>
+
+      {docs.map((d) => {
+        const completedCount = STEP_ORDER.filter((s) => d.steps[s.key] === 'ok').length
+        const totalVisible = STEP_ORDER.length
+        const progressPct = Math.round((completedCount / totalVisible) * 100)
+
+        return (
+          <div
+            key={d.document_id}
+            className="p-4 rounded-xl bg-surface-2 border border-border shadow-xs hover:border-border-bright transition-all"
+          >
+            <div className="flex items-center justify-between gap-3 mb-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-[13.5px] font-semibold text-ink truncate">{d.filename}</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full font-mono bg-surface-1 border border-border text-muted">
+                  {d.document_id}
+                </span>
+              </div>
+              <span className="text-[12px] font-mono font-medium text-teal-600 dark:text-teal-400 shrink-0">
+                {progressPct}%
+              </span>
+            </div>
+
+            {/* Micro progress bar */}
+            <div className="w-full bg-surface-1 h-1.5 rounded-full overflow-hidden mb-3 border border-border/40">
+              <div
+                className="bg-gradient-to-r from-teal-500 to-emerald-500 h-full transition-all duration-300 rounded-full"
+                style={{ width: `${Math.max(progressPct, 5)}%` }}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-1.5">
+              {STEP_ORDER.map((s) => (
+                <StepChip key={s.key} label={s.label} status={d.steps[s.key]} />
+              ))}
+            </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {STEP_ORDER.map((s) => (
-              <StepChip key={s.key} label={s.label} status={d.steps[s.key]} />
-            ))}
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
 function StepChip({ label, status }: { label: string; status?: StepStatusName }) {
-  const cls =
-    status === 'ok'
-      ? 'bg-teal-50 text-teal-600 border-teal-600/30'
-      : status === 'start'
-        ? 'bg-amber-50 text-amber-700 border-amber-600/30 animate-pulse'
-        : status === 'skip'
-          ? 'bg-surface-2 text-muted border-border'
-          : status === 'error'
-            ? 'bg-coral-50 text-coral-600 border-coral-600/30'
-            : 'bg-surface-2 text-muted/40 border-border'
+  const getBadgeStyle = () => {
+    switch (status) {
+      case 'ok':
+        return {
+          cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 font-medium',
+          icon: <Check className="w-2.5 h-2.5 stroke-[3]" />,
+        }
+      case 'start':
+        return {
+          cls: 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/40 animate-pulse font-medium',
+          icon: <Loader2 className="w-2.5 h-2.5 animate-spin" />,
+        }
+      case 'error':
+        return {
+          cls: 'bg-coral-500/15 text-coral-600 dark:text-coral-400 border-coral-500/40 font-medium',
+          icon: <AlertCircle className="w-2.5 h-2.5" />,
+        }
+      case 'skip':
+        return {
+          cls: 'bg-surface-1 text-muted/60 border-border/60',
+          icon: <Minus className="w-2.5 h-2.5" />,
+        }
+      default:
+        return {
+          cls: 'bg-surface-1/60 text-muted/40 border-border/40',
+          icon: <span className="w-1.5 h-1.5 rounded-full bg-muted/30" />,
+        }
+    }
+  }
 
-  const mark =
-    status === 'ok'
-      ? '✓'
-      : status === 'error'
-        ? '✕'
-        : status === 'skip'
-          ? '–'
-          : status === 'start'
-            ? '⟳'
-            : '·'
+  const { cls, icon } = getBadgeStyle()
 
   return (
     <span
-      className={`px-2 py-0.5 rounded-md text-[11px] font-medium border-[0.5px] ${cls}`}
+      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] border transition-all ${cls}`}
       title={status ?? 'pending'}
     >
-      <span className="mr-1">{mark}</span>
-      {label}
+      {icon}
+      <span>{label}</span>
     </span>
   )
 }

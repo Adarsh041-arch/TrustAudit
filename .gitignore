@@ -39,3 +39,6 @@ coverage.xml
 .superpowers/
 
 data/recon/
+.data/
+tmp/
+opencode.json

@@ -11,6 +11,7 @@ Linkage priority (highest first):
 Every link records its method and confidence. Low-confidence links are
 included but flagged; the adjudicator/review layer decides whether to assert.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -32,10 +33,17 @@ FUZZY_MIN_OVERLAP = 0.5
 # Placeholder ids the extractors emit into header.document_id when they could
 # not read a printed document number. These must never be treated as a PO's
 # business number for linkage.
-_PLACEHOLDER_DOC_IDS = frozenset({
-    "extracted", "po_extracted", "inv_extracted", "grn_extracted",
-    "dc_extracted", "vlm_doc", "vlm_text_doc",
-})
+_PLACEHOLDER_DOC_IDS = frozenset(
+    {
+        "extracted",
+        "po_extracted",
+        "inv_extracted",
+        "grn_extracted",
+        "dc_extracted",
+        "vlm_doc",
+        "vlm_text_doc",
+    }
+)
 
 _CONFIDENCE = {
     LinkMethod.EXPLICIT_REFERENCE: 0.98,
@@ -111,93 +119,138 @@ def _link(doc: ExtractedDocument, method: LinkMethod) -> DocumentLink:
     )
 
 
+def identity_scope(doc: ExtractedDocument) -> tuple[str, str, str]:
+    h = doc.header
+    supplier = h.vendor_gstin or h.vendor_name
+    buyer = h.buyer_gstin or h.buyer_name
+    return (
+        doc.tenant_id,
+        _norm(buyer.value if buyer else None),
+        _norm(supplier.value if supplier else None),
+    )
+
+
+def business_number(doc: ExtractedDocument) -> str:
+    h = doc.header
+    value = {
+        DocumentType.INVOICE: h.invoice_number,
+        DocumentType.PURCHASE_ORDER: h.po_number,
+        DocumentType.DELIVERY_CHALLAN: h.challan_number,
+        DocumentType.GOODS_RECEIPT_NOTE: h.grn_number,
+        DocumentType.CERTIFICATE_OF_ORIGIN: h.certificate_number,
+    }.get(doc.doc_type)
+    if value and value.value.strip():
+        return _norm(value.value)
+    if doc.doc_type == DocumentType.PURCHASE_ORDER and h.po_reference:
+        return _norm(h.po_reference.value)
+    printed = h.document_id
+    if (
+        printed
+        and printed not in _PLACEHOLDER_DOC_IDS
+        and not printed.startswith(("doc_", "upload_"))
+    ):
+        return _norm(printed)
+    return ""
+
+
+def duplicate_key(doc: ExtractedDocument) -> str:
+    import json
+
+    return json.dumps([*identity_scope(doc), doc.doc_type.value, business_number(doc)])
+
+
+def near_duplicate_key(doc: ExtractedDocument) -> str | None:
+    import json
+
+    amount, when = _amount_of(doc), _date_of(doc)
+    if amount is None or when is None:
+        return None
+    currency = doc.header.grand_total.currency if doc.header.grand_total else None
+    return json.dumps(
+        [
+            *identity_scope(doc),
+            doc.doc_type.value,
+            str(amount.normalize()),
+            when.isoformat(),
+            currency,
+        ]
+    )
+
+
+def _dates_close(a: ExtractedDocument, b: ExtractedDocument) -> bool:
+    first, second = _date_of(a), _date_of(b)
+    return (
+        first is not None and second is not None and abs((first - second).days) <= DATE_WINDOW_DAYS
+    )
+
+
 def build_clusters(documents: list[ExtractedDocument]) -> list[TransactionCluster]:
-    """Group documents into transaction clusters.
+    """Stable scoped anchors; inferred links remain candidates requiring review."""
+    import hashlib
+    import json
 
-    A cluster is anchored on a PO number where one is referenced; documents
-    with no explicit reference fall back to (vendor, amount, date-window),
-    then fuzzy vendor+description matching against existing clusters.
-    """
     clusters: dict[str, TransactionCluster] = {}
-    unanchored: list[ExtractedDocument] = []
-
-    # Pass 1 — explicit references anchor clusters by PO number.
-    for doc in documents:
-        po_ref = _po_ref_of(doc)
-        if po_ref:
-            cluster = clusters.get(po_ref)
-            if cluster is None:
-                cluster = TransactionCluster(cluster_id=f"cluster-{po_ref}")
-                clusters[po_ref] = cluster
-            cluster.documents.append(doc)
-            cluster.links.append(_link(doc, LinkMethod.EXPLICIT_REFERENCE))
+    unanchored = []
+    for doc in sorted(documents, key=lambda d: (d.tenant_id, d.document_id)):
+        ref = (
+            business_number(doc) if doc.doc_type == DocumentType.PURCHASE_ORDER else _po_ref_of(doc)
+        )
+        scope = identity_scope(doc)
+        if ref and scope[2]:
+            key = json.dumps([*scope, ref])
+            cid = "cluster-" + hashlib.sha256(key.encode()).hexdigest()[:24]
+            c = clusters.setdefault(key, TransactionCluster(cluster_id=cid))
+            c.documents.append(doc)
+            c.links.append(_link(doc, LinkMethod.EXPLICIT_REFERENCE))
+            if not scope[1]:
+                c.review_reasons = [
+                    "Buyer identity is missing; transaction identity requires review"
+                ]
         else:
             unanchored.append(doc)
-
-    # Pass 2 — (vendor, amount, date-window) against anchored clusters.
-    still_unanchored: list[ExtractedDocument] = []
+    anchors = list(clusters.values())
+    for c in anchors:
+        if len(c.of_type(DocumentType.PURCHASE_ORDER)) > 1:
+            c.review_reasons.append(
+                "Multiple purchase orders share the business identity; resolve revisions"
+            )
     for doc in unanchored:
-        vendor, amount, doc_date = _vendor_of(doc), _amount_of(doc), _date_of(doc)
-        placed = False
-        if vendor and amount is not None and doc_date is not None:
-            for cluster in clusters.values():
-                for member in cluster.documents:
-                    m_date = _date_of(member)
-                    if (
-                        _vendor_of(member) == vendor
-                        and _amount_of(member) == amount
-                        and m_date is not None
-                        and abs((m_date - doc_date).days) <= DATE_WINDOW_DAYS
-                    ):
-                        cluster.documents.append(doc)
-                        cluster.links.append(_link(doc, LinkMethod.VENDOR_AMOUNT_DATE))
-                        placed = True
-                        break
-                if placed:
-                    break
-        if not placed:
-            still_unanchored.append(doc)
-
-    # Pass 3 — fuzzy: same vendor + line-description overlap.
-    for doc in still_unanchored:
-        vendor, descs = _vendor_of(doc), _descriptions_of(doc)
-        placed = False
-        if vendor and descs:
-            for cluster in clusters.values():
-                for member in cluster.documents:
-                    m_descs = _descriptions_of(member)
-                    if _vendor_of(member) != vendor or not m_descs:
-                        continue
-                    overlap = len(descs & m_descs) / min(len(descs), len(m_descs))
-                    if overlap >= FUZZY_MIN_OVERLAP:
-                        cluster.documents.append(doc)
-                        cluster.links.append(_link(doc, LinkMethod.FUZZY))
-                        placed = True
-                        break
-                if placed:
-                    break
-        if not placed:
-            # Singleton cluster: the document stands alone (no link to record).
-            cid = f"cluster-solo-{_norm(doc.document_id)}"
-            clusters[cid] = TransactionCluster(cluster_id=cid, documents=[doc])
-
-    return list(clusters.values())
+        candidates = []
+        for c in anchors:
+            # Only compare against explicit anchors, never an earlier inferred document.
+            if any(
+                identity_scope(m) == identity_scope(doc)
+                and _vendor_of(doc)
+                and (
+                    (
+                        _amount_of(m) is not None
+                        and _amount_of(m) == _amount_of(doc)
+                        and _dates_close(m, doc)
+                    )
+                    or bool(_descriptions_of(m) & _descriptions_of(doc))
+                )
+                for m in c.documents
+            ):
+                candidates.append(c.cluster_id)
+        reasons = (
+            ["Unconfirmed transaction candidates: " + ", ".join(sorted(candidates))]
+            if candidates
+            else ["No confirmed transaction reference"]
+        )
+        cid = (
+            "cluster-solo-"
+            + hashlib.sha256(f"{doc.tenant_id}:{doc.document_id}".encode()).hexdigest()[:24]
+        )
+        clusters[cid] = TransactionCluster(cluster_id=cid, documents=[doc], review_reasons=reasons)
+    return sorted(clusters.values(), key=lambda c: c.cluster_id)
 
 
 def build_corpus_index(documents: list[ExtractedDocument]) -> CorpusIndex:
-    """Per-tenant duplicate-detection index (PHASES_V2 §4 Phase 6)."""
     index = CorpusIndex()
     for doc in documents:
-        vendor = _vendor_of(doc)
-        docnum = _norm(doc.document_id)
-        if vendor and docnum:
-            index.by_vendor_docnum.setdefault(
-                f"{vendor}||{docnum}", []).append(doc.document_id)
-        amount, doc_date = _amount_of(doc), _date_of(doc)
-        if vendor and amount is not None and doc_date is not None:
-            # Near-duplicate key is doc-type-scoped: a certificate, PO, or
-            # contract that merely shares a vendor/amount/date with an invoice
-            # is NOT a duplicate. Only same-kind documents can duplicate.
-            key = f"{vendor}||{doc.doc_type.value}||{amount}||{doc_date.isoformat()}"
+        if identity_scope(doc)[2] and business_number(doc):
+            index.by_vendor_docnum.setdefault(duplicate_key(doc), []).append(doc.document_id)
+        key = near_duplicate_key(doc)
+        if key and identity_scope(doc)[2]:
             index.by_vendor_amount_date.setdefault(key, []).append(doc.document_id)
     return index

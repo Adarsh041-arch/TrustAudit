@@ -49,7 +49,7 @@ def check_gstin_format(ctx: CheckContext) -> CheckResult:
     gstin = doc.header.vendor_gstin
     if gstin is None or not gstin.value.strip():
         if _is_international_doc(doc):
-            return CheckResult.skipped(
+            return CheckResult.not_applicable(
                 "CHK-REF-GST-001",
                 "GSTIN not applicable for non-GST/international document",
             )
@@ -105,7 +105,7 @@ def check_bank_details(ctx: CheckContext) -> CheckResult:
     bank = doc.header.bank_details
     if bank is None:
         if _is_international_doc(doc):
-            return CheckResult.skipped(
+            return CheckResult.not_applicable(
                 "CHK-REF-BANK-001",
                 "Bank details optional for international document",
             )
@@ -157,41 +157,8 @@ def _qty_evidence(doc: ExtractedDocument, li: LineItem) -> EvidenceItem:
 def _check_qty_against(
     ctx: CheckContext, check_id: str, ref_type: DocumentType, ref_label: str,
 ) -> CheckResult:
-    if ctx.cluster is None:
-        return CheckResult.skipped(
-            check_id, "Cross-document check: no cluster context on this run",
-        )
-    refs = ctx.cluster.of_type(ref_type)
-    if not refs:
-        return CheckResult.skipped(check_id, f"No {ref_label} in cluster")
-
-    ref_qty: dict[str, Decimal] = {}
-    ref_line: dict[str, tuple[ExtractedDocument, LineItem]] = {}
-    for ref in refs:
-        for key, (li, qty) in _qty_by_desc(ref).items():
-            ref_qty[key] = ref_qty.get(key, Decimal("0")) + qty
-            ref_line[key] = (ref, li)
-
-    for key, (li, qty) in _qty_by_desc(ctx.document).items():
-        if key not in ref_qty:
-            continue  # unmatched line: no verdict (precision-first)
-        if qty > ref_qty[key]:
-            ref_doc, ref_li = ref_line[key]
-            return CheckResult.failed(
-                check_id,
-                expected=f"<= {ref_qty[key]}",
-                actual=str(qty),
-                delta=str(qty - ref_qty[key]),
-                message=(
-                    f"Line {li.line_number} ({li.description.value}): qty {qty} "
-                    f"exceeds {ref_label} qty {ref_qty[key]}"
-                ),
-                evidence=[
-                    _qty_evidence(ctx.document, li),
-                    _qty_evidence(ref_doc, ref_li),
-                ],
-            )
-    return CheckResult.passed(check_id)
+    from audit_v2.domain.validators.threeway import compare_quantity
+    return compare_quantity(ctx, check_id, ref_type)
 
 
 def check_quantity_po(ctx: CheckContext) -> CheckResult:

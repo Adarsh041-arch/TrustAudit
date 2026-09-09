@@ -1,92 +1,223 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://audit-v2.local/schemas/finding.json",
-  "title": "Finding",
-  "description": "A single audit finding — result of executing one check on one document.",
-  "type": "object",
+  "$defs": {
+    "EvidenceItem": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "page",
+        "field",
+        "raw"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "FindingStatus": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "SKIPPED",
+        "NEEDS_REVIEW",
+        "NOT_APPLICABLE",
+        "NOT_RUN",
+        "ERROR"
+      ],
+      "title": "FindingStatus",
+      "type": "string"
+    },
+    "Severity": {
+      "enum": [
+        "critical",
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
   "properties": {
     "finding_id": {
-      "type": "string",
-      "pattern": "^fnd_[0-9A-Za-z]{16,26}$"
+      "title": "Finding Id",
+      "type": "string"
     },
     "check_id": {
-      "type": "string",
-      "pattern": "^CHK-[A-Z]+-[A-Z]+-[0-9]{3}$"
+      "title": "Check Id",
+      "type": "string"
     },
     "document_id": {
-      "type": "string",
-      "pattern": "^doc_[0-9A-Za-z]{16,26}$"
+      "title": "Document Id",
+      "type": "string"
     },
     "tenant_id": {
-      "type": "string",
-      "minLength": 1
-    },
-    "check_type": {
+      "title": "Tenant Id",
       "type": "string"
     },
     "status": {
-      "type": "string",
-      "enum": ["PASS", "FAIL", "SKIPPED", "NEEDS_REVIEW"]
+      "$ref": "#/$defs/FindingStatus"
     },
     "severity": {
-      "type": "string",
-      "enum": ["critical", "high", "medium", "low"]
+      "$ref": "#/$defs/Severity"
     },
     "expected": {
-      "type": "string",
-      "description": "Expected value as string (monetary values serialized as strings)"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected"
     },
     "actual": {
-      "type": "string",
-      "description": "Actual value as string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actual"
     },
     "delta": {
-      "type": "string",
-      "description": "Difference as string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delta"
     },
     "currency": {
-      "type": "string",
-      "pattern": "^[A-Z]{3}$"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
     },
     "tolerance": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tolerance"
     },
     "message": {
+      "title": "Message",
       "type": "string"
     },
     "evidence": {
-      "type": "array",
       "items": {
-        "$ref": "provenance.json"
-      }
+        "$ref": "#/$defs/EvidenceItem"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "coverage": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Coverage",
+      "type": "object"
     },
     "decision_fingerprint": {
-      "type": "string",
-      "pattern": "^sha256:[0-9a-f]{64}$"
+      "title": "Decision Fingerprint",
+      "type": "string"
     },
     "ruleset_version": {
+      "title": "Ruleset Version",
       "type": "string"
     },
     "requires_human_review": {
+      "default": false,
+      "title": "Requires Human Review",
       "type": "boolean"
     },
     "supersedes": {
-      "type": ["string", "null"],
-      "pattern": "^fnd_[0-9A-Za-z]{16,26}$"
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Supersedes"
     },
     "created_at": {
-      "type": "string",
-      "format": "date-time"
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
     },
     "schema_version": {
-      "type": "string",
-      "pattern": "^\\d+\\.\\d+$"
+      "default": "2.0",
+      "title": "Schema Version",
+      "type": "string"
     }
   },
   "required": [
-    "finding_id", "check_id", "document_id", "tenant_id",
-    "status", "severity", "message", "evidence",
-    "decision_fingerprint", "ruleset_version",
-    "created_at", "schema_version"
-  ]
+    "finding_id",
+    "check_id",
+    "document_id",
+    "tenant_id",
+    "status",
+    "severity",
+    "message",
+    "decision_fingerprint",
+    "ruleset_version"
+  ],
+  "title": "Finding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/finding.json"
 }

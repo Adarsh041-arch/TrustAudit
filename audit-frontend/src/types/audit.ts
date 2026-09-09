@@ -30,7 +30,10 @@ export interface DocumentAuditResult {
   document_type: string
   passed: boolean
   document_status: 'READY' | 'INCOMPLETE' | 'PENDING' | 'FAILED' | 'UNSUPPORTED'
-  audit_status?: 'PASS' | 'FAIL' | 'NOT_AUDITED'
+  audit_status?: 'PASS' | 'FAIL' | 'NOT_AUDITED' | 'NEEDS_REVIEW' | 'INCOMPLETE' | 'UNSUPPORTED'
+  decision?: { status: string; blockers: string[]; required_checks: number; completed_checks: number; policy_version: string; scope: string }
+  check_results?: Array<{ check_id: string; status: string; message: string; coverage?: Record<string, number> }>
+  cross_check?: { execution_status: string; supported: boolean | null; partial?: boolean }
   score: number | null
   risk_level: string
   risk_explanation: string

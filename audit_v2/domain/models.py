@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
+
 class DocumentType(StrEnum):
     INVOICE = "invoice"
     PURCHASE_ORDER = "purchase_order"
@@ -21,12 +22,14 @@ class DocumentType(StrEnum):
 
 
 #: Free-text document types — VLM-only extraction (report + key fields).
-TEXT_DOC_TYPES = frozenset({
-    DocumentType.CONTRACT,
-    DocumentType.LETTER,
-    DocumentType.CERTIFICATE_OF_ORIGIN,
-    DocumentType.UNKNOWN,
-})
+TEXT_DOC_TYPES = frozenset(
+    {
+        DocumentType.CONTRACT,
+        DocumentType.LETTER,
+        DocumentType.CERTIFICATE_OF_ORIGIN,
+        DocumentType.UNKNOWN,
+    }
+)
 
 
 class ClassificationStatus(StrEnum):
@@ -59,6 +62,9 @@ class FindingStatus(StrEnum):
     FAIL = "FAIL"
     SKIPPED = "SKIPPED"
     NEEDS_REVIEW = "NEEDS_REVIEW"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    NOT_RUN = "NOT_RUN"
+    ERROR = "ERROR"
 
 
 class Severity(StrEnum):
@@ -95,12 +101,17 @@ class FailureClass(StrEnum):
 
 # ─── Value Objects ────────────────────────────────────────────────────────────
 
+
 class ProvenancedValue(BaseModel):
     value: str
     raw: str
     currency: str | None = None
     bbox: list[float] | None = None
     page: int = 1
+    source_id: str | None = None
+    label: str | None = None
+    row_id: str | None = None
+    text_span: str | None = None
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
     @property
@@ -108,9 +119,7 @@ class ProvenancedValue(BaseModel):
         try:
             return Decimal(self.value)
         except InvalidOperation as e:
-            raise ValueError(
-                f"Field value {self.value!r} (raw {self.raw!r}) is not numeric"
-            ) from e
+            raise ValueError(f"Field value {self.value!r} (raw {self.raw!r}) is not numeric") from e
 
     def model_post_init(self, __context: object) -> None:
         if self.bbox is not None and len(self.bbox) != 4:
@@ -127,10 +136,12 @@ class Coverage(BaseModel):
     def validate_coverage(self) -> Coverage:
 
         if self.coverage_complete:
-            assert self.pages_examined == self.pages_total, \
+            assert self.pages_examined == self.pages_total, (
                 "coverage_complete=True but pages_examined != pages_total"
-            assert len(self.pages_unreadable) == 0, \
+            )
+            assert len(self.pages_unreadable) == 0, (
                 "coverage_complete=True but pages_unreadable is not empty"
+            )
         return self
 
 
@@ -152,6 +163,7 @@ class ToleranceSpec(BaseModel):
 
 # ─── Check Catalog ───────────────────────────────────────────────────────────
 
+
 class CheckCatalogEntry(BaseModel):
     check_id: str = Field(pattern=r"^CHK-[A-Z]+-[A-Z]+-[0-9]{3}$")
     title: str
@@ -164,6 +176,7 @@ class CheckCatalogEntry(BaseModel):
     failure_message: str
     requires_human_review: bool = False
     ruleset_version: str | None = None
+    blocking: bool = True
 
 
 class CheckCatalog(BaseModel):
@@ -174,6 +187,7 @@ class CheckCatalog(BaseModel):
 
 # ─── Line Items ──────────────────────────────────────────────────────────────
 
+
 class LineItem(BaseModel):
     line_number: int = Field(ge=1)
     description: ProvenancedValue
@@ -182,6 +196,8 @@ class LineItem(BaseModel):
     line_total: ProvenancedValue
     hsn_sac: ProvenancedValue | None = None
     quantity_unit: ProvenancedValue | None = None
+    item_code: ProvenancedValue | None = None
+    po_line_reference: ProvenancedValue | None = None
 
     def expected_total(self, exponent: Decimal = Decimal("0.01")) -> Decimal:
         """Quantity x unit price, quantized to the currency's minor unit.
@@ -285,6 +301,9 @@ class DocumentHeader(BaseModel):
 
 
 class ExtractedDocument(BaseModel):
+    content_hash: str | None = None
+    revision_of: str | None = None
+    review_reasons: list[str] = Field(default_factory=list)
     document_id: str
     tenant_id: str
     doc_type: DocumentType
@@ -322,6 +341,7 @@ class ExtractedDocument(BaseModel):
 
 # ─── Findings ────────────────────────────────────────────────────────────────
 
+
 class EvidenceItem(BaseModel):
     document_id: str
     page: int = Field(ge=1)
@@ -344,6 +364,7 @@ class Finding(BaseModel):
     tolerance: str | None = None
     message: str
     evidence: list[EvidenceItem] = Field(default_factory=list)
+    coverage: dict[str, int] = Field(default_factory=dict)
     decision_fingerprint: str
     ruleset_version: str
     requires_human_review: bool = False
@@ -352,13 +373,13 @@ class Finding(BaseModel):
     schema_version: str = "2.0"
 
 
-
 # ─── Correlation (Phase 7) ──────────────────────────────────────────────────
 
+
 class LinkMethod(StrEnum):
-    EXPLICIT_REFERENCE = "explicit_reference"      # invoice cites PO number
-    VENDOR_AMOUNT_DATE = "vendor_amount_date"      # (vendor, amount, date-window)
-    FUZZY = "fuzzy"                                # vendor + line-description match
+    EXPLICIT_REFERENCE = "explicit_reference"  # invoice cites PO number
+    VENDOR_AMOUNT_DATE = "vendor_amount_date"  # (vendor, amount, date-window)
+    FUZZY = "fuzzy"  # vendor + line-description match
 
 
 class DocumentLink(BaseModel):
@@ -374,9 +395,11 @@ class TransactionCluster(BaseModel):
     PHASES_V2 §4 Phase 7: every link records its method and confidence;
     low-confidence links route to human review rather than being asserted.
     """
+
     cluster_id: str
     links: list[DocumentLink] = Field(default_factory=list)
     documents: list[ExtractedDocument] = Field(default_factory=list)
+    review_reasons: list[str] = Field(default_factory=list)
 
     def of_type(self, doc_type: DocumentType) -> list[ExtractedDocument]:
         return [d for d in self.documents if d.doc_type == doc_type]
@@ -384,7 +407,7 @@ class TransactionCluster(BaseModel):
     @property
     def purchase_order(self) -> ExtractedDocument | None:
         pos = self.of_type(DocumentType.PURCHASE_ORDER)
-        return pos[0] if pos else None
+        return pos[0] if len(pos) == 1 else None
 
 
 class CorpusIndex(BaseModel):
@@ -393,6 +416,7 @@ class CorpusIndex(BaseModel):
     Keys are pre-normalized strings so the index is serializable and the
     lookups deterministic.
     """
+
     # "vendor||docnum" -> list of document_ids carrying that number
     by_vendor_docnum: dict[str, list[str]] = Field(default_factory=dict)
     # "vendor||doc_type||amount||date" -> list of document_ids. Type-scoped so
@@ -401,6 +425,7 @@ class CorpusIndex(BaseModel):
 
 
 # ─── Check Context ───────────────────────────────────────────────────────────
+
 
 class CheckContext(BaseModel):
     document: ExtractedDocument
@@ -420,6 +445,7 @@ class CheckContext(BaseModel):
 
 
 class CheckResult(BaseModel):
+    coverage: dict[str, int] = Field(default_factory=dict)
     check_id: str
     status: FindingStatus
     expected: str | None = None
@@ -430,8 +456,9 @@ class CheckResult(BaseModel):
     requires_human_review: bool = False
 
     @classmethod
-    def passed(cls, check_id: str, evidence: list[EvidenceItem] | None = None,
-               message: str | None = None) -> CheckResult:
+    def passed(
+        cls, check_id: str, evidence: list[EvidenceItem] | None = None, message: str | None = None
+    ) -> CheckResult:
         return cls(
             check_id=check_id,
             status=FindingStatus.PASS,
@@ -440,10 +467,16 @@ class CheckResult(BaseModel):
         )
 
     @classmethod
-    def failed(cls, check_id: str, expected: str, actual: str, delta: str,
-               evidence: list[EvidenceItem] | None = None,
-               message: str | None = None,
-               requires_human_review: bool = False) -> CheckResult:
+    def failed(
+        cls,
+        check_id: str,
+        expected: str,
+        actual: str,
+        delta: str,
+        evidence: list[EvidenceItem] | None = None,
+        message: str | None = None,
+        requires_human_review: bool = False,
+    ) -> CheckResult:
         return cls(
             check_id=check_id,
             status=FindingStatus.FAIL,
@@ -456,6 +489,22 @@ class CheckResult(BaseModel):
         )
 
     @classmethod
+    def unresolved(
+        cls, check_id: str, reason: str, *, coverage: dict[str, int] | None = None
+    ) -> CheckResult:
+        return cls(
+            check_id=check_id,
+            status=FindingStatus.NOT_RUN,
+            message=reason,
+            requires_human_review=True,
+            coverage=coverage or {},
+        )
+
+    @classmethod
+    def not_applicable(cls, check_id: str, reason: str) -> CheckResult:
+        return cls(check_id=check_id, status=FindingStatus.NOT_APPLICABLE, message=reason)
+
+    @classmethod
     def skipped(cls, check_id: str, reason: str) -> CheckResult:
         return cls(
             check_id=check_id,
@@ -466,8 +515,13 @@ class CheckResult(BaseModel):
 
 # ─── Decision Fingerprint ──────────────────────────────────────────────────
 
-def make_fingerprint(ruleset_version: str, prompt_version: str,
-                     model_version: str, extractor_version: str,
-                     document_hash: str) -> str:
+
+def make_fingerprint(
+    ruleset_version: str,
+    prompt_version: str,
+    model_version: str,
+    extractor_version: str,
+    document_hash: str,
+) -> str:
     raw = f"{ruleset_version}|{prompt_version}|{model_version}|{extractor_version}|{document_hash}"
     return f"sha256:{hashlib.sha256(raw.encode()).hexdigest()}"

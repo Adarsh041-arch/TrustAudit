@@ -1,4 +1,5 @@
 """Deterministic, label-anchored parsing of GLM-OCR page transcriptions."""
+
 from __future__ import annotations
 
 import re
@@ -14,17 +15,21 @@ from audit_v2.extraction.schemas import (
     DeliveryChallanExtraction,
     GoodsReceiptExtraction,
     InvoiceExtraction,
+    LetterExtraction,
     LineItemSchema,
     PurchaseOrderExtraction,
 )
 
-SUPPORTED_TYPES = frozenset({
-    DocumentType.INVOICE,
-    DocumentType.PURCHASE_ORDER,
-    DocumentType.DELIVERY_CHALLAN,
-    DocumentType.GOODS_RECEIPT_NOTE,
-    DocumentType.CONTRACT,
-})
+SUPPORTED_TYPES = frozenset(
+    {
+        DocumentType.INVOICE,
+        DocumentType.PURCHASE_ORDER,
+        DocumentType.DELIVERY_CHALLAN,
+        DocumentType.GOODS_RECEIPT_NOTE,
+        DocumentType.CONTRACT,
+        DocumentType.LETTER,
+    }
+)
 
 _GSTIN = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z]\dZ[A-Z0-9]\b", re.I)
 _CURRENCY = re.compile(r"\b(USD|INR|EUR|GBP)\b|([$₹€£])", re.I)
@@ -99,7 +104,7 @@ def _section_name(text: str, label: str) -> str | None:
         inline = match.group(1).strip("| ")
         if inline and not re.match(r"(?i)^(address|p\.?o\.? box|gst|vat)\b", inline):
             return inline
-        for candidate in lines[idx + 1:idx + 4]:
+        for candidate in lines[idx + 1 : idx + 4]:
             if _BUSINESS.search(candidate):
                 return candidate
             if re.match(r"(?i)^(address|p\.?o\.? box|gst|vat|buyer|consignee)\b", candidate):
@@ -161,7 +166,7 @@ def _header_index(headers: list[str], aliases: tuple[str, ...]) -> int | None:
     return None
 
 
-def _pipe_items(text: str) -> list[LineItemSchema]:
+def _pipe_items(text: str, *, require_prices: bool = True) -> list[LineItemSchema]:
     source_lines = text.splitlines()
     row_entries = [
         (line_number, [cell.strip() for cell in line.strip().strip("|").split("|")])
@@ -175,11 +180,15 @@ def _pipe_items(text: str) -> list[LineItemSchema]:
         price_i = _header_index(headers, ("unit price", "rate", "price"))
         total_i = _header_index(headers, ("amount", "line total", "value"))
         hsn_i = _header_index(headers, ("hs code", "hsn", "sac"))
-        if None in (desc_i, qty_i, price_i, total_i):
+        required_indexes = (desc_i, qty_i, price_i, total_i) if require_prices else (desc_i, qty_i)
+        if desc_i is None or qty_i is None or any(index is None for index in required_indexes):
             continue
         items: list[LineItemSchema] = []
-        for entry_idx, cells in enumerate(rows[row_idx + 1:], start=row_idx + 1):
-            if len(cells) <= max(desc_i, qty_i, price_i, total_i):
+        for entry_idx, cells in enumerate(rows[row_idx + 1 :], start=row_idx + 1):
+            present_indexes = [
+                index for index in (desc_i, qty_i, price_i, total_i) if index is not None
+            ]
+            if len(cells) <= max(present_indexes):
                 continue
             if all(re.fullmatch(r":?-{2,}:?", cell.replace(" ", "")) for cell in cells):
                 continue
@@ -195,7 +204,7 @@ def _pipe_items(text: str) -> list[LineItemSchema]:
                 else len(source_lines)
             )
             continuations: list[str] = []
-            for line in source_lines[row_entries[entry_idx][0] + 1:next_row_line]:
+            for line in source_lines[row_entries[entry_idx][0] + 1 : next_row_line]:
                 candidate = line.strip()
                 if not candidate:
                     continue
@@ -211,12 +220,17 @@ def _pipe_items(text: str) -> list[LineItemSchema]:
             item = LineItemSchema(
                 description=description or None,
                 quantity=quantity_match.group(0) if quantity_match else None,
-                unit_price=cells[price_i] or None,
-                line_total=cells[total_i] or None,
+                unit_price=(cells[price_i] or None) if price_i is not None else None,
+                line_total=(cells[total_i] or None) if total_i is not None else None,
                 hsn_sac=cells[hsn_i] if hsn_i is not None and hsn_i < len(cells) else None,
                 quantity_unit=unit_match.group(1).upper() if unit_match else None,
             )
-            if all((item.description, item.quantity, item.unit_price, item.line_total)):
+            required_values = (
+                (item.description, item.quantity, item.unit_price, item.line_total)
+                if require_prices
+                else (item.description, item.quantity)
+            )
+            if all(required_values):
                 items.append(item)
         return items
     return []
@@ -235,11 +249,15 @@ def _whitespace_items(text: str) -> list[LineItemSchema]:
             line,
         )
         if match:
-            items.append(LineItemSchema(
-                description=match.group("desc").strip(), quantity=match.group("qty"),
-                unit_price=match.group("price"), line_total=match.group("total"),
-                hsn_sac=match.group("hsn"),
-            ))
+            items.append(
+                LineItemSchema(
+                    description=match.group("desc").strip(),
+                    quantity=match.group("qty"),
+                    unit_price=match.group("price"),
+                    line_total=match.group("total"),
+                    hsn_sac=match.group("hsn"),
+                )
+            )
     return items
 
 
@@ -259,8 +277,11 @@ def _vertical_items(text: str) -> list[LineItemSchema]:
         return []
 
     hsn_idx = next(
-        (idx for idx in reversed(hsn_indexes) if idx + 1 < len(lines)
-         and re.fullmatch(r"\d{4,8}", lines[idx + 1])),
+        (
+            idx
+            for idx in reversed(hsn_indexes)
+            if idx + 1 < len(lines) and re.fullmatch(r"\d{4,8}", lines[idx + 1])
+        ),
         -1,
     )
     qty_idx, price_idx, amount_idx = qty_indexes[0], price_indexes[0], amount_indexes[0]
@@ -270,7 +291,8 @@ def _vertical_items(text: str) -> list[LineItemSchema]:
         return []
 
     description_parts = [
-        line for line in lines[desc_indexes[0] + 1:hsn_idx]
+        line
+        for line in lines[desc_indexes[0] + 1 : hsn_idx]
         if not re.fullmatch(r"(?:hs|hsn|sac)\s*code", line, re.I)
     ]
     quantity_raw = lines[qty_idx + 1]
@@ -278,27 +300,37 @@ def _vertical_items(text: str) -> list[LineItemSchema]:
     unit_match = re.search(r"(?i)\b([A-Z]{1,5})\b", quantity_raw)
     if not description_parts or not quantity_match:
         return []
-    return [LineItemSchema(
-        description=" ".join(description_parts),
-        hsn_sac=lines[hsn_idx + 1],
-        quantity=quantity_match.group(0),
-        quantity_unit=unit_match.group(1).upper() if unit_match else None,
-        unit_price=lines[price_idx + 1],
-        line_total=lines[amount_idx + 1],
-    )]
+    return [
+        LineItemSchema(
+            description=" ".join(description_parts),
+            hsn_sac=lines[hsn_idx + 1],
+            quantity=quantity_match.group(0),
+            quantity_unit=unit_match.group(1).upper() if unit_match else None,
+            unit_price=lines[price_idx + 1],
+            line_total=lines[amount_idx + 1],
+        )
+    ]
 
 
-def _items(text: str) -> tuple[list[LineItemSchema], bool]:
+def _items(text: str, *, require_prices: bool = True) -> tuple[list[LineItemSchema], bool]:
     visible = bool(_TABLE_MARKERS.search(text)) or all(
         re.search(pattern, text, re.I)
-        for pattern in (r"description(?:\s+of\s+goods)?", r"\bquantity\b", r"\bamount\b")
+        for pattern in (
+            (r"description(?:\s+of\s+goods)?", r"\b(?:qty|quantity)\b", r"\bamount\b")
+            if require_prices
+            else (r"description(?:\s+of\s+goods)?|\bitem\b", r"\b(?:qty|quantity)\b")
+        )
     )
-    return _pipe_items(text) or _whitespace_items(text) or _vertical_items(text), visible
+    if require_prices:
+        items = _pipe_items(text) or _whitespace_items(text) or _vertical_items(text)
+    else:
+        items = _pipe_items(text, require_prices=False)
+    return items, visible
 
 
-def _common(text: str) -> dict[str, object]:
+def _common(text: str, *, require_prices: bool = True) -> dict[str, object]:
     vendor_gstin, buyer_gstin = _context_gstins(text)
-    items, table_visible = _items(text)
+    items, table_visible = _items(text, require_prices=require_prices)
     return {
         "vendor_name": _section_name(text, r"(?:seller|vendor|supplier)") or _masthead_vendor(text),
         "vendor_gstin": vendor_gstin,
@@ -321,7 +353,7 @@ def _contract_parties(text: str) -> tuple[str | None, str | None]:
         )
         if marker_index is None:
             return None
-        for candidate in lines[marker_index + 1:marker_index + 7]:
+        for candidate in lines[marker_index + 1 : marker_index + 7]:
             if _BUSINESS.search(candidate):
                 return candidate.rstrip(",")
         return None
@@ -366,8 +398,25 @@ def parse_transcript(
     doc_type: DocumentType, text: str, *, first_page: bool
 ) -> TranscriptParseResult:
     """Parse one OCR page without calculating or inventing absent values."""
+    instance: BaseModel
+    required: tuple[str, ...]
     if doc_type not in SUPPORTED_TYPES:
         raise ValueError(f"No deterministic transcript parser for {doc_type.value}")
+    if doc_type == DocumentType.LETTER:
+        instance = LetterExtraction(
+            sender=_section_name(text, r"(?:from|sender)"),
+            recipient=_section_name(text, r"(?:to|recipient)"),
+            date=_date_value(text, r"(?:letter\s+date|date|dated)"),
+            reference=_label(text, r"(?:letter|reference|ref)"),
+            subject=_label(text, r"(?:subject|re)"),
+        )
+        required = ("sender", "date")
+        missing = [name for name in required if first_page and not getattr(instance, name)]
+        return TranscriptParseResult(
+            instance=instance,
+            missing_fields=missing,
+            fallback_reasons=[f"missing:{name}" for name in missing],
+        )
     if doc_type == DocumentType.CONTRACT:
         party_a, party_b = _contract_parties(text)
         instance = ContractExtraction(
@@ -375,16 +424,11 @@ def parse_transcript(
             party_b=party_b,
             effective_date=_contract_effective_date(text),
             expiry_date=_contract_expiry_date(text),
-            reference=_label(
-                text, r"(?:(?:proforma|performa)\s+invoice|contract|agreement)"
-            ),
+            reference=_label(text, r"(?:(?:proforma|performa)\s+invoice|contract|agreement)"),
             subject=next(iter(_lines(text)), None),
         )
         required = ("party_a", "party_b", "effective_date", "reference")
-        missing = [
-            name for name in required
-            if first_page and not getattr(instance, name, None)
-        ]
+        missing = [name for name in required if first_page and not getattr(instance, name, None)]
         return TranscriptParseResult(
             instance=instance,
             missing_fields=missing,
@@ -392,50 +436,63 @@ def parse_transcript(
             table_visible=False,
         )
 
-    common = _common(text)
+    common = _common(
+        text,
+        require_prices=doc_type
+        not in {
+            DocumentType.DELIVERY_CHALLAN,
+            DocumentType.GOODS_RECEIPT_NOTE,
+        },
+    )
     table_visible = bool(common.pop("table_visible"))
     total, ambiguous_total = _explicit_total(text)
 
     if doc_type == DocumentType.INVOICE:
-        instance: BaseModel = InvoiceExtraction(
-            **common,
-            invoice_number=_label(text, r"(?:(?:proforma\s+)?invoice|inv)"),
-            invoice_date=_date_value(text, r"(?:invoice\s+date|date|dated)"),
-            po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
-            grand_total=total,
-            amount_in_words=_label(text, r"(?:amount\s+in\s+words|in\s+words)"),
+        instance = InvoiceExtraction.model_validate(
+            dict(
+                **common,
+                invoice_number=_label(text, r"(?:(?:proforma\s+)?invoice|inv)"),
+                invoice_date=_date_value(text, r"(?:invoice\s+date|date|dated)"),
+                po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+                grand_total=total,
+                amount_in_words=_label(text, r"(?:amount\s+in\s+words|in\s+words)"),
+            )
         )
         required = ("vendor_name", "invoice_number", "invoice_date", "grand_total")
     elif doc_type == DocumentType.PURCHASE_ORDER:
-        instance = PurchaseOrderExtraction(
-            **{k: v for k, v in common.items() if k != "buyer_gstin"},
-            po_number=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
-            order_date=_date_value(text, r"(?:order\s+date|date|dated)"),
-            grand_total=total,
+        instance = PurchaseOrderExtraction.model_validate(
+            dict(
+                **{k: v for k, v in common.items() if k != "buyer_gstin"},
+                po_number=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+                order_date=_date_value(text, r"(?:order\s+date|date|dated)"),
+                grand_total=total,
+            )
         )
         required = ("vendor_name", "po_number", "order_date")
     elif doc_type == DocumentType.DELIVERY_CHALLAN:
         simple_common = {
-            k: v for k, v in common.items()
-            if k not in {"vendor_gstin", "buyer_gstin", "currency"}
+            k: v for k, v in common.items() if k not in {"vendor_gstin", "buyer_gstin", "currency"}
         }
-        instance = DeliveryChallanExtraction(
-            **simple_common,
-            challan_number=_label(text, r"(?:challan|DC)"),
-            delivery_date=_date_value(text, r"(?:delivery\s+date|date|dated)"),
-            po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+        instance = DeliveryChallanExtraction.model_validate(
+            dict(
+                **simple_common,
+                challan_number=_label(text, r"(?:challan|DC)"),
+                delivery_date=_date_value(text, r"(?:delivery\s+date|date|dated)"),
+                po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+            )
         )
         required = ("vendor_name", "challan_number", "delivery_date")
     else:
         simple_common = {
-            k: v for k, v in common.items()
-            if k not in {"vendor_gstin", "buyer_gstin", "currency"}
+            k: v for k, v in common.items() if k not in {"vendor_gstin", "buyer_gstin", "currency"}
         }
-        instance = GoodsReceiptExtraction(
-            **simple_common,
-            grn_number=_label(text, r"(?:GRN|goods\s+receipt\s+note)"),
-            grn_date=_date_value(text, r"(?:GRN\s+date|receipt\s+date|date|dated)"),
-            po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+        instance = GoodsReceiptExtraction.model_validate(
+            dict(
+                **simple_common,
+                grn_number=_label(text, r"(?:GRN|goods\s+receipt\s+note)"),
+                grn_date=_date_value(text, r"(?:GRN\s+date|receipt\s+date|date|dated)"),
+                po_reference=_label(text, r"(?:PO|P\.O\.|purchase\s+order)"),
+            )
         )
         required = ("vendor_name", "grn_number", "grn_date")
 

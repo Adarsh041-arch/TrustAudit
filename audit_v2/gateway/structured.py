@@ -20,7 +20,7 @@ from typing import TypeVar
 from pydantic import BaseModel, ValidationError
 
 from audit_v2.extraction.vlm_extractor import parse_vlm_json
-from audit_v2.gateway.vision_gateway import VisionGateway
+from audit_v2.gateway.vision_gateway import ExtractionGateway
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _schema_prompt(prompt: str, schema: dict) -> str:
 
 
 def _request_content(
-    gateway: VisionGateway,
+    gateway: ExtractionGateway,
     images: list[bytes],
     prompt: str,
     schema: dict,
@@ -61,6 +61,9 @@ def _request_content(
     except RuntimeError as err:
         # Permanent rejection (e.g. HTTP 400/422): the hosted model likely does
         # not support guided_json. Retry once without it, schema in the prompt.
+        message = str(err)
+        if "HTTP 400" not in message and "HTTP 422" not in message:
+            raise
         logger.info(
             "guided_json rejected for tenant %s (%s); retrying schema-in-prompt",
             tenant_id, err,
@@ -83,7 +86,7 @@ def _request_content(
 
 
 def extract_structured(
-    gateway: VisionGateway,
+    gateway: ExtractionGateway,
     images: list[bytes],
     prompt: str,
     schema_model: type[T],

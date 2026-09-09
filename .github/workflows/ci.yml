@@ -91,3 +91,29 @@ assert pct >= 80, f'Only {pct:.0f}% deterministic, need ≥ 80%'
                  --cov-fail-under=95 \
                  --cov-report=term-missing \
                  -q
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: audit-frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: audit-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  product-reliability-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e "audit_v2[dev]"
+      - name: False clearance, isolation, retries, and evidence grounding
+        run: pytest tests/test_product_reliability.py tests/recon/test_api.py tests/test_server_v2.py tests/test_injection_corpus.py -q

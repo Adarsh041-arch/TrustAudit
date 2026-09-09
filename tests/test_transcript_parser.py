@@ -147,3 +147,37 @@ def test_qwen_proforma_markdown_labels_parse_without_structured_fallback() -> No
     assert parsed.complete is True
     assert parsed.instance.reference == "PI-2026-453"
     assert parsed.instance.effective_date == "2026-08-04"
+
+
+def test_delivery_challan_rows_do_not_require_prices() -> None:
+    transcript = """DELIVERY CHALLAN
+Dispatch From: NewTech Solutions Pvt Ltd
+Challan No: DC-2026-0011
+Date: 15 June 2026
+PO Reference: PO-2026-485
+| Description | HSN | Quantity |
+| Paper Shredder | 8472 | 3 Nos |
+| External Hard Drive 2TB | 8523 | 6 Nos |
+"""
+    parsed = parse_transcript(DocumentType.DELIVERY_CHALLAN, transcript, first_page=True)
+    grounded = ground_instance(parsed.instance, transcript, page=1)
+
+    assert parsed.fallback_reasons == []
+    assert len(grounded.instance.line_items) == 2
+    assert grounded.issues == []
+
+
+def test_business_letter_uses_labelled_sender_and_date() -> None:
+    transcript = """BUSINESS LETTER
+Letter No: LTR-2026-0018
+Date: 12 July 2026
+From: Shree Ganesh Traders Pvt. Ltd.
+To: Skyline Infra Projects Ltd.
+Subject: Quotation Submission
+"""
+    parsed = parse_transcript(DocumentType.LETTER, transcript, first_page=True)
+
+    assert parsed.fallback_reasons == []
+    assert parsed.instance.sender == "Shree Ganesh Traders Pvt. Ltd."
+    assert parsed.instance.recipient == "Skyline Infra Projects Ltd."
+    assert parsed.instance.date == "2026-07-12"

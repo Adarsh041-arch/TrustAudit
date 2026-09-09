@@ -12,6 +12,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from audit_v2.security.auth import principal
 from reconcile.explainer import (
     answer_question,
     make_text_gateway,
@@ -27,7 +28,21 @@ from reconcile.validation import parse_ground_truth, validate_run
 
 router = APIRouter(prefix="/api/recon", tags=["reconciliation"])
 
-_RUNS: dict[str, ReconciliationRun] = {}
+# Tenant state is persisted in the same transaction adapter as document audits.
+def _runs() -> dict[str, ReconciliationRun]:
+    from audit_v2.server import OPERATIONAL_STORE
+    with OPERATIONAL_STORE.transaction(principal().tenant_id) as tx:
+        state = tx.load() or {}
+        return {k: ReconciliationRun.model_validate(v) for k, v in state.get("reconciliation_runs", {}).items()}
+
+
+def _save_run(run: ReconciliationRun) -> None:
+    from audit_v2.server import OPERATIONAL_STORE
+    with OPERATIONAL_STORE.transaction(principal().tenant_id) as tx:
+        state = tx.load() or {}
+        state.setdefault("reconciliation_runs", {})[run.run_id] = run.model_dump(mode="json")
+        tx.save(state, event="reconciliation_completed")
+
 
 
 @router.post("/run")
@@ -62,13 +77,13 @@ async def run_reconciliation(
         # ponytail: fast-fail (20s, no retries) - explanations are cosmetic,
         # never worth blocking the verdict response; circuit-breaks after 1st failure
         run = populate_explanations(run, make_text_gateway(timeout=20, max_retries=0))
-    _RUNS[run.run_id] = run
+    _save_run(run)
     return run
 
 
 @router.get("/results/{run_id}")
 async def get_results(run_id: str) -> ReconciliationRun:
-    run = _RUNS.get(run_id)
+    run = _runs().get(run_id)
     if run is None:
         raise HTTPException(404, f"unknown run_id {run_id!r}")
     return run
@@ -76,6 +91,10 @@ async def get_results(run_id: str) -> ReconciliationRun:
 
 @router.post("/report")
 async def generate_report(run: ReconciliationRun, format: str = Query("docx")) -> Response:
+    stored = _runs().get(run.run_id)
+    if stored is None:
+        raise HTTPException(404, "Reconciliation run not found")
+    run = stored
     if format == "pdf":
         payload = generate_pdf_recon_report(run)
         media_type, ext = "application/pdf", "pdf"
@@ -95,7 +114,7 @@ async def generate_report(run: ReconciliationRun, format: str = Query("docx")) -
 
 @router.get("/results/{run_id}/forecast")
 async def get_forecast(run_id: str) -> CashForecast:
-    run = _RUNS.get(run_id)
+    run = _runs().get(run_id)
     if run is None:
         raise HTTPException(404, f"unknown run_id {run_id!r}")
     forecast = project_cash(run)
@@ -113,7 +132,7 @@ class AskBody(BaseModel):
 
 @router.post("/results/{run_id}/ask")
 async def ask_ai(run_id: str, body: AskBody) -> JSONResponse:
-    run = _RUNS.get(run_id)
+    run = _runs().get(run_id)
     if run is None:
         raise HTTPException(404, f"unknown run_id {run_id!r}")
     question = body.question.strip()
@@ -131,14 +150,15 @@ async def ask_ai(run_id: str, body: AskBody) -> JSONResponse:
 
 @router.get("/health")
 async def health() -> JSONResponse:
-    last = max(_RUNS.values(), key=lambda r: r.run_at, default=None)
-    rates = [r.match_rate for r in _RUNS.values()]
+    runs = _runs()
+    last = max(runs.values(), key=lambda r: r.run_at, default=None)
+    rates = [r.match_rate for r in runs.values()]
     avg_rate = (sum(rates, Decimal(0)) / len(rates)) if rates else None
     return JSONResponse({
         "match_rate": str(avg_rate) if avg_rate is not None else None,
         "last_run_id": last.run_id if last else None,
         "last_run_at": last.run_at.isoformat() if last else None,
-        "total_runs_this_session": len(_RUNS),
+        "total_runs_this_session": len(runs),
         "server_time": datetime.now(UTC).isoformat(),
     })
 

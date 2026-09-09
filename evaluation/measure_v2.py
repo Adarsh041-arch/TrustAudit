@@ -23,7 +23,7 @@ import argparse
 import asyncio
 import json
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from decimal import Decimal
 from pathlib import Path
 
@@ -37,7 +37,7 @@ from audit_v2.orchestration.workflows import (
     AuditWorkflow,
     AuditWorkflowInput,
 )
-from evaluation.metrics import ConfusionMatrix, aggregate_metrics, compute_ece, determinism_score
+from evaluation.metrics import ConfusionMatrix, aggregate_metrics, determinism_score
 
 DOCS_DIR = REPO_ROOT / "evaluation" / "golden_set" / "docs"
 MANIFESTS_DIR = REPO_ROOT / "evaluation" / "golden_set" / "manifests"
@@ -127,7 +127,11 @@ def score_findings(
         cat = category_of(check_id)
         m = matrices[cat]
         if status not in ("PASS", "FAIL"):
-            continue  # SKIPPED / NEEDS_REVIEW are not verdicts
+            if check_id in gold_fails:
+                m.fn += 1
+                misses.append({"document_id": manifest["document_id"], "check_id": check_id,
+                               "note": f"unresolved expected defect: {status}"})
+            continue  # Unresolved defects are included in end-to-end recall.
         if run1_verdicts is not None:
             key = f"{manifest['document_id']}:{check_id}"
             run1_verdicts[key] = (status == "PASS")
@@ -189,7 +193,7 @@ def _decimal_equal(a: str, b: str, tolerance: str | None = None) -> bool:
 def score_extraction(manifest: dict, result: dict, field_stats: dict) -> None:
     doc = result.get("document")
     if doc is None:
-        return
+        doc = {}
     header = doc.get("header", {})
     gold_fields = manifest.get("expected_fields", {})
     gold_lines = manifest.get("expected_lines", [])
@@ -226,16 +230,16 @@ def score_extraction(manifest: dict, result: dict, field_stats: dict) -> None:
         except Exception:
             return s
 
-    gold_tuples = {(_norm(l["qty"]), _norm(l["rate"]), _norm(l["total"]),
-                    l.get("hsn", "")) for l in gold_lines}
-    ext_tuples = {(_norm(_pv(l, "quantity")), _norm(_pv(l, "unit_price")),
+    gold_tuples = Counter((_norm(l["qty"]), _norm(l["rate"]), _norm(l["total"]),
+                    l.get("hsn", "")) for l in gold_lines)
+    ext_tuples = Counter((_norm(_pv(l, "quantity")), _norm(_pv(l, "unit_price")),
                    _norm(_pv(l, "line_total")), _pv(l, "hsn_sac"))
-                  for l in extracted_lines}
-    line_matches = len(gold_tuples & ext_tuples)
+                  for l in extracted_lines)
+    line_matches = sum((gold_tuples & ext_tuples).values())
     field_stats.setdefault("lines", {"tp": 0, "fp": 0, "fn": 0})
     field_stats["lines"]["tp"] += line_matches
-    field_stats["lines"]["fn"] += len(gold_tuples) - line_matches
-    field_stats["lines"]["fp"] += len(ext_tuples) - line_matches
+    field_stats["lines"]["fn"] += sum(gold_tuples.values()) - line_matches
+    field_stats["lines"]["fp"] += sum(ext_tuples.values()) - line_matches
 
 
 async def main_async(args: argparse.Namespace) -> dict:
@@ -263,7 +267,7 @@ async def main_async(args: argparse.Namespace) -> dict:
         if result is None:
             errors.append({"document_id": manifest["document_id"],
                            "error": "source PDF missing"})
-            continue
+            result = {"status": "FAILED", "error": "source PDF missing", "findings": [], "document": None}
         statuses[result["status"]] += 1
 
         expected_status = manifest.get("expected_status")
@@ -284,7 +288,6 @@ async def main_async(args: argparse.Namespace) -> dict:
         if result["error"]:
             errors.append({"document_id": manifest["document_id"],
                            "error": result["error"]})
-            continue
         score_findings(manifest, result, matrices, misses, false_alarms,
                        confidences, correct, run1_verdicts)
         score_extraction(manifest, result, field_stats)
@@ -292,7 +295,7 @@ async def main_async(args: argparse.Namespace) -> dict:
         if args.verbose and i % 25 == 0:
             print(f"  ... {i}/{len(manifests)}")
 
-    ece = compute_ece(confidences, correct)
+    ece = None  # No calibrated confidence predictions are supplied by this deterministic harness.
 
     # Second pass for determinism
     run2_verdicts: dict[str, bool] = {}
@@ -306,6 +309,9 @@ async def main_async(args: argparse.Namespace) -> dict:
     determinism = determinism_score(run1_verdicts, run2_verdicts)
     report = aggregate_metrics(dict(matrices))
     report["documents"] = len(manifests)
+    report["evaluation_scope"] = "synthetic deterministic extraction; not live product validation"
+    report["confidence_calibration"] = {"status": "not_measured", "ece": ece}
+    report["unresolved_defects"] = sum("unresolved" in m.get("note", "") for m in misses)
     report["statuses"] = dict(statuses)
     report["errors"] = errors
     report["misses"] = misses
@@ -349,10 +355,6 @@ async def main_async(args: argparse.Namespace) -> dict:
             "value": round(report["extraction"]["f1"], 4) if report.get("extraction") else 0.0,
             "target": 0.95,
             "pass": (report.get("extraction", {}).get("f1") or 0) >= 0.95,
-        },
-        "ece": {
-            "value": round(ece, 4), "target": 0.05,
-            "pass": ece <= 0.05,
         },
         "determinism": {
             "value": round(determinism, 4), "target": 1.0,
@@ -442,7 +444,7 @@ def main() -> None:
             json.dump(report, f, indent=2, default=str)
         print(f"\nReport written to {args.out}")
 
-    all_pass = all(g["pass"] for g in report["gates"].values())
+    all_pass = not report["errors"] and all(g["pass"] for g in report["gates"].values())
     sys.exit(0 if all_pass else 1)
 
 

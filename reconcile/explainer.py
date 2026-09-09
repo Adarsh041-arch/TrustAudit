@@ -52,7 +52,7 @@ def _exception_prompt(r: MatchResult) -> str:
         lines.append(f"Amount difference (payout minus credit): {r.amount_delta}")
     if r.date_drift_days is not None:
         lines.append(f"Settlement lag: {r.date_drift_days} days")
-    hint = _HINTS.get(r.exception_type)
+    hint = (_HINTS.get(r.exception_type) if r.exception_type else None)
     if hint:
         lines.append(f"Contextual note (verify against the figures above): {hint}.")
     return "\n".join(lines)
@@ -151,7 +151,7 @@ def answer_question(run: ReconciliationRun, txn_id: str, question: str, gateway)
             facts.append(f"  amount delta (payout - credit): {r.amount_delta}")
         if r.date_drift_days is not None:
             facts.append(f"  settlement lag: {r.date_drift_days} days")
-        hint = _HINTS.get(r.exception_type)
+        hint = (_HINTS.get(r.exception_type) if r.exception_type else None)
         if hint:
             facts.append(f"  contextual note: {hint}.")
 

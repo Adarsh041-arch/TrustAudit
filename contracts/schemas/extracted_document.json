@@ -1,0 +1,1042 @@
+{
+  "$defs": {
+    "CertificateGoodsItem": {
+      "properties": {
+        "line_number": {
+          "minimum": 1,
+          "title": "Line Number",
+          "type": "integer"
+        },
+        "description": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "hs_code": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "quantity": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "quantity_unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "invoice_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "invoice_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "line_number",
+        "description",
+        "hs_code",
+        "quantity"
+      ],
+      "title": "CertificateGoodsItem",
+      "type": "object"
+    },
+    "ClassificationEvidence": {
+      "properties": {
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "page",
+        "text"
+      ],
+      "title": "ClassificationEvidence",
+      "type": "object"
+    },
+    "ClassificationStatus": {
+      "enum": [
+        "CONFIRMED",
+        "AMBIGUOUS",
+        "CONFLICTED",
+        "UNSUPPORTED"
+      ],
+      "title": "ClassificationStatus",
+      "type": "string"
+    },
+    "Coverage": {
+      "properties": {
+        "pages_total": {
+          "minimum": 1,
+          "title": "Pages Total",
+          "type": "integer"
+        },
+        "pages_examined": {
+          "minimum": 0,
+          "title": "Pages Examined",
+          "type": "integer"
+        },
+        "pages_unreadable": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Pages Unreadable",
+          "type": "array"
+        },
+        "coverage_complete": {
+          "default": false,
+          "title": "Coverage Complete",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "pages_total",
+        "pages_examined"
+      ],
+      "title": "Coverage",
+      "type": "object"
+    },
+    "DocumentHeader": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "doc_type": {
+          "$ref": "#/$defs/DocumentType"
+        },
+        "vendor_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "vendor_gstin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "buyer_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "buyer_gstin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "invoice_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "po_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "challan_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grn_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "invoice_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "due_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "po_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grand_total": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "amount_in_words": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bank_details": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bank Details"
+        },
+        "order_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "delivery_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payment_terms": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "delivery_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subtotal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "discount_amount": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "discount_percentage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "opening_balance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "receipts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "payments": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "closing_balance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expiry_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "received_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grn_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "certificate_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "certificate_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "exporter_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "exporter_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "consignee_name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "consignee_address": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "country_of_origin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "referenced_invoice_number": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "referenced_invoice_date": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "issuing_authority": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "signature_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Present"
+        },
+        "seal_present": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Seal Present"
+        }
+      },
+      "required": [
+        "document_id",
+        "doc_type"
+      ],
+      "title": "DocumentHeader",
+      "type": "object"
+    },
+    "DocumentType": {
+      "enum": [
+        "invoice",
+        "purchase_order",
+        "delivery_challan",
+        "goods_receipt_note",
+        "contract",
+        "letter",
+        "certificate_of_origin",
+        "unknown"
+      ],
+      "title": "DocumentType",
+      "type": "string"
+    },
+    "LineItem": {
+      "properties": {
+        "line_number": {
+          "minimum": 1,
+          "title": "Line Number",
+          "type": "integer"
+        },
+        "description": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "quantity": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "unit_price": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "line_total": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "hsn_sac": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "quantity_unit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "item_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "po_line_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProvenancedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "line_number",
+        "description",
+        "quantity",
+        "unit_price",
+        "line_total"
+      ],
+      "title": "LineItem",
+      "type": "object"
+    },
+    "ProvenancedValue": {
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "page": {
+          "default": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "source_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Id"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "row_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Row Id"
+        },
+        "text_span": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Span"
+        },
+        "confidence": {
+          "default": 1.0,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "value",
+        "raw"
+      ],
+      "title": "ProvenancedValue",
+      "type": "object"
+    },
+    "TaxLine": {
+      "properties": {
+        "line_number": {
+          "minimum": 1,
+          "title": "Line Number",
+          "type": "integer"
+        },
+        "description": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "taxable_value": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "rate": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "cgst": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "sgst": {
+          "$ref": "#/$defs/ProvenancedValue"
+        },
+        "total_tax": {
+          "$ref": "#/$defs/ProvenancedValue"
+        }
+      },
+      "required": [
+        "line_number",
+        "description",
+        "taxable_value",
+        "rate",
+        "cgst",
+        "sgst",
+        "total_tax"
+      ],
+      "title": "TaxLine",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "content_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Hash"
+    },
+    "revision_of": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Revision Of"
+    },
+    "review_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Review Reasons",
+      "type": "array"
+    },
+    "document_id": {
+      "title": "Document Id",
+      "type": "string"
+    },
+    "tenant_id": {
+      "title": "Tenant Id",
+      "type": "string"
+    },
+    "doc_type": {
+      "$ref": "#/$defs/DocumentType"
+    },
+    "header": {
+      "$ref": "#/$defs/DocumentHeader"
+    },
+    "line_items": {
+      "items": {
+        "$ref": "#/$defs/LineItem"
+      },
+      "title": "Line Items",
+      "type": "array"
+    },
+    "tax_lines": {
+      "items": {
+        "$ref": "#/$defs/TaxLine"
+      },
+      "title": "Tax Lines",
+      "type": "array"
+    },
+    "certificate_goods": {
+      "items": {
+        "$ref": "#/$defs/CertificateGoodsItem"
+      },
+      "title": "Certificate Goods",
+      "type": "array"
+    },
+    "coverage": {
+      "$ref": "#/$defs/Coverage"
+    },
+    "page_count": {
+      "minimum": 1,
+      "title": "Page Count",
+      "type": "integer"
+    },
+    "extractor_version": {
+      "title": "Extractor Version",
+      "type": "string"
+    },
+    "model_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Version"
+    },
+    "grounding_rejections": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Grounding Rejections",
+      "type": "array"
+    },
+    "narrative_report": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Narrative Report"
+    },
+    "extraction_disagreements": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Extraction Disagreements",
+      "type": "object"
+    },
+    "classification_status": {
+      "$ref": "#/$defs/ClassificationStatus",
+      "default": "CONFIRMED"
+    },
+    "classification_confidence": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Classification Confidence",
+      "type": "number"
+    },
+    "classification_method": {
+      "default": "provided",
+      "title": "Classification Method",
+      "type": "string"
+    },
+    "classification_evidence": {
+      "items": {
+        "$ref": "#/$defs/ClassificationEvidence"
+      },
+      "title": "Classification Evidence",
+      "type": "array"
+    },
+    "alternative_types": {
+      "items": {
+        "$ref": "#/$defs/DocumentType"
+      },
+      "title": "Alternative Types",
+      "type": "array"
+    },
+    "extraction_strategy": {
+      "default": "unsupported",
+      "title": "Extraction Strategy",
+      "type": "string"
+    },
+    "vision_backend": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Vision Backend"
+    },
+    "vision_call_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Vision Call Count",
+      "type": "integer"
+    },
+    "glm_call_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Glm Call Count",
+      "type": "integer"
+    },
+    "structured_fallback_used": {
+      "default": false,
+      "title": "Structured Fallback Used",
+      "type": "boolean"
+    },
+    "transcript_cache_hit": {
+      "default": false,
+      "title": "Transcript Cache Hit",
+      "type": "boolean"
+    },
+    "extraction_latency_ms": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Extraction Latency Ms",
+      "type": "number"
+    },
+    "fallback_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Fallback Reasons",
+      "type": "array"
+    }
+  },
+  "required": [
+    "document_id",
+    "tenant_id",
+    "doc_type",
+    "header",
+    "coverage",
+    "page_count",
+    "extractor_version"
+  ],
+  "title": "ExtractedDocument",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/extracted_document.json"
+}

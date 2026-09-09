@@ -36,6 +36,10 @@ IFSC_RE = re.compile(r"^[A-Z]{4}0[A-Z0-9]{6}$")
 
 def parse_amount(raw: str, locale_hint: str | None = None) -> Decimal | None:
     cleaned = AMOUNT_CLEAN_RE.sub(r"\1", raw.strip()).strip()
+    # OCR/VLM output commonly writes ISO currency after the value (for
+    # example ``828.69 EUR``). Currency is retained separately by the mapper;
+    # it must not make an otherwise visible amount unparseable.
+    cleaned = re.sub(r"\s*(?:INR|Rs\.?|USD|EUR|GBP|₹|\$|€|£)\s*$", "", cleaned, flags=re.I)
     if not cleaned:
         return None
 
@@ -146,7 +150,10 @@ def validate_ifsc(ifsc: str) -> bool:
 def extract_po_reference(text: str) -> str | None:
     m = PO_REF_SHORT_RE.search(text)
     if m:
-        return m.group(1).strip()
+        candidate = m.group(1).strip()
+        if re.fullmatch(r"(?i)P\.?O\.?(?:\s+Reference|\s+Number|\s+No\.?)", candidate):
+            return None
+        return candidate
     m = PO_REF_LONG_RE.search(text)
     if m:
         return m.group(1).strip()

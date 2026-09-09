@@ -88,3 +88,19 @@ def test_explicitly_labelled_contract_expiry_is_grounded() -> None:
 
     assert grounded.instance.expiry_date == "2027-07-20"
     assert grounded.issues == []
+
+
+def test_hyphenated_named_month_date_is_equivalent() -> None:
+    candidate = InvoiceExtraction(invoice_date="2002-01-23")
+    grounded = ground_instance(candidate, "Invoice Date: 23-Jan-2002", page=1)
+
+    assert grounded.instance.invoice_date == "2002-01-23"
+    assert grounded.issues == []
+
+
+def test_currency_suffix_amount_is_grounded() -> None:
+    candidate = InvoiceExtraction(grand_total="828.69 EUR")
+    grounded = ground_instance(candidate, "TOTAL: 828.69 EUR", page=1)
+
+    assert grounded.instance.grand_total == "828.69 EUR"
+    assert grounded.issues == []

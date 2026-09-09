@@ -17,7 +17,9 @@ try:
     from reportlab.lib import colors  # type: ignore[import-untyped]
     from reportlab.lib.pagesizes import letter  # type: ignore[import-untyped]
     from reportlab.lib.styles import ParagraphStyle  # type: ignore[import-untyped]
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+    from reportlab.platypus import (  # type: ignore[import-untyped]
+        Paragraph, SimpleDocTemplate, Table, TableStyle,
+    )
 
     REPORTLAB_AVAILABLE = True
 except ImportError:  # pragma: no cover

@@ -75,10 +75,11 @@ def determinism_score(run1_verdicts: dict[str, bool], run2_verdicts: dict[str, b
 
     Keys are finding IDs, values are True for PASS, False for FAIL.
     """
-    common = set(run1_verdicts) & set(run2_verdicts)
+    common = set(run1_verdicts) | set(run2_verdicts)
     if not common:
         return 0.0
-    agreements = sum(1 for k in common if run1_verdicts[k] == run2_verdicts[k])
+    agreements = sum(1 for k in common if k in run1_verdicts and k in run2_verdicts
+                     and run1_verdicts[k] == run2_verdicts[k])
     return agreements / len(common)
 
 

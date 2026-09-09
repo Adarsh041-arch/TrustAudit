@@ -61,14 +61,14 @@ def _fail(check_id: str, document_id: str = "doc1") -> Finding:
 
 def test_cross_check_no_evidence_is_supported() -> None:
     result = run_cross_check([], "doc1", DocumentType.INVOICE, "t")
-    assert result.supported is True
+    assert result.supported is None
     assert result.contradictions == []
 
 
 def test_cross_check_skips_without_gateway_or_key() -> None:
     # Hermetic fixture removed NVIDIA_API_KEY; no gateway injected → skip cleanly.
     result = run_cross_check([_evidence()], "doc1", DocumentType.INVOICE, "t")
-    assert result.supported is True
+    assert result.supported is None
     assert result.contradictions == []
     assert "skipped" in result.summary.lower()
 
@@ -108,7 +108,7 @@ def test_cross_check_survives_bad_reply(make_gateway) -> None:
         [_evidence()], "doc1", DocumentType.INVOICE, "t",
         gateway=make_gateway("not json", "still not json"),
     )
-    assert result.supported is True
+    assert result.supported is None
     assert result.contradictions == []
 
 
@@ -138,7 +138,7 @@ def test_cross_check_filters_null_and_zero_omissions(make_gateway) -> None:
     result = run_cross_check(
         [_evidence()], "doc1", DocumentType.INVOICE, "t", gateway=make_gateway(reply),
     )
-    assert result.supported is True
+    assert result.supported is None
     assert result.contradictions == []
 
 

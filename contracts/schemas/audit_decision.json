@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "AuditDecisionStatus": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NEEDS_REVIEW",
+        "INCOMPLETE",
+        "UNSUPPORTED"
+      ],
+      "title": "AuditDecisionStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "status": {
+      "$ref": "#/$defs/AuditDecisionStatus"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "required_checks": {
+      "default": 0,
+      "title": "Required Checks",
+      "type": "integer"
+    },
+    "completed_checks": {
+      "default": 0,
+      "title": "Completed Checks",
+      "type": "integer"
+    },
+    "policy_version": {
+      "default": "clearance-1",
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "scope": {
+      "default": "Uploaded document consistency and transaction matching; not source authenticity",
+      "title": "Scope",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status"
+  ],
+  "title": "AuditDecision",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/audit_decision.json"
+}

@@ -44,7 +44,7 @@ _LADDER = [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
 
 def assess_risk(r: MatchResult) -> Severity:
     """Deterministic severity: base by exception type, bumped by materiality."""
-    base = _RISK_BASE.get(r.exception_type, Severity.MEDIUM)
+    base = (_RISK_BASE.get(r.exception_type, Severity.MEDIUM) if r.exception_type else Severity.MEDIUM)
     amount = (
         (r.bank.credited_amount if r.bank else None)
         or (r.payout.payout_amount if r.payout else None)

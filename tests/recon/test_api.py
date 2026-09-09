@@ -188,3 +188,18 @@ def test_health_reports_session_state(client, batch_dir):
     health = client.get("/api/recon/health").json()
     assert health["total_runs_this_session"] == before + 1
     assert health["last_run_id"]
+
+
+def test_reconciliation_tenant_isolation_and_report_ownership(client, batch_dir, monkeypatch):
+    import hashlib
+    import json
+    run = _upload(client, batch_dir).json()
+    monkeypatch.setenv("V2_AUTH_MODE", "token")
+    monkeypatch.setenv("V2_AUTH_ACCOUNTS", json.dumps([{
+        "actor_id": "other-reviewer", "tenant_id": "other-tenant", "role": "reviewer",
+        "token_sha256": hashlib.sha256(b"other-token").hexdigest(),
+    }]))
+    headers = {"Authorization": "Bearer other-token"}
+    assert client.get(f"/api/recon/results/{run['run_id']}", headers=headers).status_code == 404
+    assert client.post("/api/recon/report", json=run, headers=headers).status_code == 404
+    assert client.get("/api/recon/health", headers=headers).json()["total_runs_this_session"] == 0

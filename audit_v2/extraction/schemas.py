@@ -10,6 +10,7 @@ free list the model uses for anything salient the fixed fields don't capture.
 canonical :class:`~audit_v2.domain.models.ExtractedDocument` so that all the
 existing deterministic validators keep running unchanged.
 """
+
 from __future__ import annotations
 
 import re
@@ -178,7 +179,9 @@ EXTRACTION_SCHEMA_BY_TYPE: dict[DocumentType, type[BaseModel]] = {
 
 
 def supplement_from_transcript(
-    instance: BaseModel, doc_type: DocumentType, transcript: str,
+    instance: BaseModel,
+    doc_type: DocumentType,
+    transcript: str,
 ) -> BaseModel:
     """Fill only missing, explicitly labelled fields from the raw transcription."""
     if doc_type != DocumentType.CERTIFICATE_OF_ORIGIN:
@@ -215,6 +218,7 @@ def supplement_from_transcript(
 
     return type(instance).model_validate(data)
 
+
 # ─── Mapping onto the canonical ExtractedDocument ─────────────────────────────
 
 #: Free-text schemas use natural field names; alias them onto DocumentHeader.
@@ -243,14 +247,36 @@ _ALIASES: dict[DocumentType, dict[str, str]] = {
 #: DocumentHeader ProvenancedValue fields the mapper will populate when the
 #: schema (directly or via an alias) carries the corresponding value.
 _HEADER_FIELDS = (
-    "vendor_name", "vendor_gstin", "buyer_name", "buyer_gstin",
-    "invoice_number", "po_number", "challan_number", "grn_number",
-    "invoice_date", "due_date", "po_reference", "order_date",
-    "delivery_date", "grn_date", "received_date", "expiry_date",
-    "subtotal", "discount_amount", "grand_total", "amount_in_words",
-    "certificate_number", "certificate_date", "exporter_name", "exporter_address",
-    "consignee_name", "consignee_address", "country_of_origin",
-    "referenced_invoice_number", "referenced_invoice_date", "issuing_authority",
+    "vendor_name",
+    "vendor_gstin",
+    "buyer_name",
+    "buyer_gstin",
+    "invoice_number",
+    "po_number",
+    "challan_number",
+    "grn_number",
+    "invoice_date",
+    "due_date",
+    "po_reference",
+    "order_date",
+    "delivery_date",
+    "grn_date",
+    "received_date",
+    "expiry_date",
+    "subtotal",
+    "discount_amount",
+    "grand_total",
+    "amount_in_words",
+    "certificate_number",
+    "certificate_date",
+    "exporter_name",
+    "exporter_address",
+    "consignee_name",
+    "consignee_address",
+    "country_of_origin",
+    "referenced_invoice_number",
+    "referenced_invoice_date",
+    "issuing_authority",
 )
 
 
@@ -287,15 +313,17 @@ def _line_items(instance: BaseModel, currency: str | None = None) -> list[LineIt
         price = _pv(raw.unit_price, currency=currency)
         total = _pv(raw.line_total, currency=currency)
         if desc and qty and price and total:
-            items.append(LineItem(
-                line_number=idx,
-                description=desc,
-                quantity=qty,
-                unit_price=price,
-                line_total=total,
-                hsn_sac=_pv(raw.hsn_sac),
-                quantity_unit=_pv(raw.quantity_unit),
-            ))
+            items.append(
+                LineItem(
+                    line_number=idx,
+                    description=desc,
+                    quantity=qty,
+                    unit_price=price,
+                    line_total=total,
+                    hsn_sac=_pv(raw.hsn_sac),
+                    quantity_unit=_pv(raw.quantity_unit),
+                )
+            )
     return items
 
 
@@ -309,15 +337,17 @@ def _tax_lines(instance: BaseModel, currency: str | None = None) -> list[TaxLine
         sgst = _pv(raw.sgst, currency=currency)
         total_tax = _pv(raw.total_tax, currency=currency)
         if desc and taxable and rate and cgst and sgst and total_tax:
-            lines.append(TaxLine(
-                line_number=idx,
-                description=desc,
-                taxable_value=taxable,
-                rate=rate,
-                cgst=cgst,
-                sgst=sgst,
-                total_tax=total_tax,
-            ))
+            lines.append(
+                TaxLine(
+                    line_number=idx,
+                    description=desc,
+                    taxable_value=taxable,
+                    rate=rate,
+                    cgst=cgst,
+                    sgst=sgst,
+                    total_tax=total_tax,
+                )
+            )
     return lines
 
 
@@ -329,15 +359,17 @@ def _certificate_goods(instance: BaseModel) -> list[CertificateGoodsItem]:
         quantity = _pv(raw.quantity)
         if not description or not hs_code or not quantity:
             continue
-        items.append(CertificateGoodsItem(
-            line_number=idx,
-            description=description,
-            hs_code=hs_code,
-            quantity=quantity,
-            quantity_unit=_pv(raw.quantity_unit),
-            invoice_number=_pv(raw.invoice_number),
-            invoice_date=_pv(raw.invoice_date),
-        ))
+        items.append(
+            CertificateGoodsItem(
+                line_number=idx,
+                description=description,
+                hs_code=hs_code,
+                quantity=quantity,
+                quantity_unit=_pv(raw.quantity_unit),
+                invoice_number=_pv(raw.invoice_number),
+                invoice_date=_pv(raw.invoice_date),
+            )
+        )
     return items
 
 
@@ -370,11 +402,13 @@ def to_extracted_document(
     if ifsc:
         bank_details["ifsc"] = str(ifsc).strip()
 
-    header = DocumentHeader(
-        document_id=document_id,
-        doc_type=doc_type,
-        bank_details=bank_details or None,
-        **header_kwargs,
+    header = DocumentHeader.model_validate(
+        dict(
+            document_id=document_id,
+            doc_type=doc_type,
+            bank_details=bank_details or None,
+            **header_kwargs,
+        )
     )
     if doc_type == DocumentType.CERTIFICATE_OF_ORIGIN:
         header.signature_present = getattr(instance, "signature_present", None)

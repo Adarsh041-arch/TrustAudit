@@ -15,7 +15,7 @@ def generate_preview(data: bytes, mime_type: str, max_size: int = 180) -> str:
         if not pages:
             return ""
         img = Image.open(BytesIO(pages[0]))
-        img.thumbnail((max_size, max_size), Image.LANCZOS)
+        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         buf = BytesIO()
         img.convert("RGB").save(buf, format="JPEG", quality=80)
         return base64.b64encode(buf.getvalue()).decode("ascii")

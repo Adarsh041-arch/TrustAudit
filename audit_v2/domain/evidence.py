@@ -49,6 +49,7 @@ class PipelineEvidence(BaseModel):
     nature: EvidenceNature
     #: regex | rapidocr | vlm | vlm_corrected | arithmetic | metadata | merge
     source: str
+    derived_from: list[str] = Field(default_factory=list)
     payload: dict[str, Any] = Field(default_factory=dict)
     summary: str
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
@@ -80,6 +81,9 @@ class CrossCheckResult(BaseModel):
     """The LLM's structured verdict over one document's full evidence list (§5)."""
 
     document_id: str
-    supported: bool = True
+    supported: bool | None = None
+    execution_status: str = "completed"
+    inspected_evidence_ids: list[str] = Field(default_factory=list)
+    partial: bool = False
     contradictions: list[Contradiction] = Field(default_factory=list)
     summary: str = ""

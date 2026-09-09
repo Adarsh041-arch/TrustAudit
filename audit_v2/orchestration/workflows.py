@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from audit_v2.domain.adjudicator import AdjudicationRequest, Adjudicator
 from audit_v2.domain.catalog_loader import entries_by_id, load_catalog
+from audit_v2.domain.decision import decide_document
 from audit_v2.domain.finding_generator import make_finding_from_result
 from audit_v2.domain.models import (
     CheckDeterminism,
@@ -17,6 +18,7 @@ from audit_v2.domain.models import (
     FailureClass,
     Finding,
 )
+from audit_v2.domain.release import apply_release_gate
 from audit_v2.domain.validation import CheckRunner
 from audit_v2.extraction.classifier import classify_document_from_data
 from audit_v2.ingestion.dedup import compute_content_hash
@@ -62,15 +64,18 @@ def run_checks_and_emit(
     catalog_check_ids = [
         c.check_id
         for c in catalog.checks
-        if c.determinism == CheckDeterminism.DETERMINISTIC
-        and doc_type in c.applies_to
+        if c.determinism == CheckDeterminism.DETERMINISTIC and doc_type in c.applies_to
     ]
     routing_decision = resolve(
-        doc_type, total_value, tenant_policy, catalog_check_ids,
+        doc_type,
+        total_value,
+        tenant_policy,
+        catalog_check_ids,
     )
     logger.info(
         "Routing %s: rule=%s included=%d skipped=%d",
-        normalized.document_id, routing_decision.rule_id,
+        normalized.document_id,
+        routing_decision.rule_id,
         len(routing_decision.included_check_ids),
         len(routing_decision.skipped_check_ids),
     )
@@ -126,6 +131,8 @@ class AuditWorkflowOutput:
     failure_class: FailureClass | None = None
     document: ExtractedDocument | None = None
     requires_human_review: bool = False
+    audit_status: str = "INCOMPLETE"
+    decision: dict = field(default_factory=dict)
 
 
 class AuditWorkflow:
@@ -167,8 +174,10 @@ class AuditWorkflow:
                     )
 
                 transition_document(
-                    store, inp.document_id,
-                    DocumentStatus.RECEIVED, DocumentStatus.VALIDATED,
+                    store,
+                    inp.document_id,
+                    DocumentStatus.RECEIVED,
+                    DocumentStatus.VALIDATED,
                 )
 
                 if inp.mime_type == "application/pdf":
@@ -189,24 +198,52 @@ class AuditWorkflow:
                         transition_document(store, inp.document_id, from_s, to_s)
 
                     transition_document(
-                        store, inp.document_id,
-                        DocumentStatus.RENDERED, DocumentStatus.EXTRACTED,
+                        store,
+                        inp.document_id,
+                        DocumentStatus.RENDERED,
+                        DocumentStatus.EXTRACTED,
                     )
                 else:
                     transition_document(
-                        store, inp.document_id,
-                        DocumentStatus.VALIDATED, DocumentStatus.EXTRACTED,
+                        store,
+                        inp.document_id,
+                        DocumentStatus.VALIDATED,
+                        DocumentStatus.EXTRACTED,
                     )
 
+                # Scan native text before sending any untrusted content to a model.
+                if inp.mime_type == "application/pdf":
+                    from audit_v2.extraction.text_extractor import TextExtractor
+
+                    native_text = "\n".join(
+                        block["text"] for block in TextExtractor().extract_text_blocks(inp.data)
+                    )
+                    early_scan = scan_document(native_text, inp.data)
+                    if early_scan.is_suspicious:
+                        store.update_status(inp.document_id, DocumentStatus.QUARANTINED_SECURITY)
+                        return AuditWorkflowOutput(
+                            document_id=inp.document_id,
+                            finding_ids=[],
+                            status=DocumentStatus.QUARANTINED_SECURITY,
+                            error=f"Prompt-injection scan failed: {early_scan.summary()}",
+                            failure_class=FailureClass.POLICY,
+                        )
+
                 detected_type, type_confidence = classify_document_from_data(
-                    inp.data, inp.mime_type,
+                    inp.data,
+                    inp.mime_type,
                 )
                 logger.info(
                     "Classified %s as %s (confidence %.2f)",
-                    inp.document_id, detected_type.value, type_confidence,
+                    inp.document_id,
+                    detected_type.value,
+                    type_confidence,
                 )
                 extraction = extract_document(
-                    inp.data, inp.mime_type, inp.document_id, inp.tenant_id,
+                    inp.data,
+                    inp.mime_type,
+                    inp.document_id,
+                    inp.tenant_id,
                     doc_type=detected_type,
                 )
                 if extraction.error is not None or extraction.document is None:
@@ -219,8 +256,10 @@ class AuditWorkflow:
                     )
 
                 transition_document(
-                    store, inp.document_id,
-                    DocumentStatus.EXTRACTED, DocumentStatus.NORMALIZED,
+                    store,
+                    inp.document_id,
+                    DocumentStatus.EXTRACTED,
+                    DocumentStatus.NORMALIZED,
                 )
                 normalized = normalize_document(extraction.document)
 
@@ -230,10 +269,12 @@ class AuditWorkflow:
                 if scan.is_suspicious:
                     logger.warning(
                         "Quarantining %s for security: %s",
-                        inp.document_id, scan.summary(),
+                        inp.document_id,
+                        scan.summary(),
                     )
                     store.update_status(
-                        inp.document_id, DocumentStatus.QUARANTINED_SECURITY,
+                        inp.document_id,
+                        DocumentStatus.QUARANTINED_SECURITY,
                     )
                     return AuditWorkflowOutput(
                         document_id=inp.document_id,
@@ -248,9 +289,11 @@ class AuditWorkflow:
                 if inp.current_date:
                     if isinstance(inp.current_date, str):
                         from datetime import datetime
+
                         with suppress(ValueError):
                             current_date_val = datetime.strptime(
-                                inp.current_date, "%Y-%m-%d",
+                                inp.current_date,
+                                "%Y-%m-%d",
                             ).date()
                     elif isinstance(inp.current_date, date):
                         current_date_val = inp.current_date
@@ -273,12 +316,14 @@ class AuditWorkflow:
                     or normalized.classification_status != ClassificationStatus.CONFIRMED
                 )
                 if normalized.extraction_disagreements:
-                    adjudication = Adjudicator().adjudicate(AdjudicationRequest(
-                        document_id=inp.document_id,
-                        tenant_id=inp.tenant_id,
-                        deterministic_findings=stored_findings,
-                        extraction_disagreements=normalized.extraction_disagreements,
-                    ))
+                    adjudication = Adjudicator().adjudicate(
+                        AdjudicationRequest(
+                            document_id=inp.document_id,
+                            tenant_id=inp.tenant_id,
+                            deterministic_findings=stored_findings,
+                            extraction_disagreements=normalized.extraction_disagreements,
+                        )
+                    )
                     requires_human_review = (
                         requires_human_review or adjudication.requires_human_review
                     )
@@ -286,10 +331,21 @@ class AuditWorkflow:
                 # PHASES_V2 §3.5: a document whose pages were not all examined
                 # cannot be reported as complete, regardless of findings.
                 final_status = (
-                    "INCOMPLETE" if not normalized.coverage.coverage_complete
-                    else "PENDING" if requires_human_review else "READY"
+                    "INCOMPLETE"
+                    if not normalized.coverage.coverage_complete
+                    else "PENDING"
+                    if requires_human_review
+                    else "READY"
                 )
                 store.update_status(inp.document_id, final_status)
+                decision = apply_release_gate(
+                    decide_document(
+                        normalized,
+                        stored_findings,
+                        load_catalog().checks,
+                        pipeline_review=requires_human_review,
+                    )
+                )
                 return AuditWorkflowOutput(
                     document_id=inp.document_id,
                     finding_ids=[f.finding_id for f in stored_findings],
@@ -298,6 +354,8 @@ class AuditWorkflow:
                     routing_rule_id=routing_decision.rule_id,
                     document=normalized,
                     requires_human_review=requires_human_review,
+                    audit_status=decision.status.value,
+                    decision=decision.model_dump(mode="json"),
                 )
 
             store.update_status(inp.document_id, "READY")

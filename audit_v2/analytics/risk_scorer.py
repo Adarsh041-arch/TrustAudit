@@ -27,7 +27,7 @@ def risk_level_for(score: float, findings: list[Finding]) -> str:
 
 def risk_explanation_for(score: float, findings: list[Finding]) -> str:
     if not findings:
-        return "No failed checks. Document is fully compliant."
+        return "No failed checks recorded. Inspect mandatory-check coverage before clearance."
     counts = {
         sev: sum(1 for f in findings if f.severity == sev) for sev in SEVERITY_WEIGHTS
     }

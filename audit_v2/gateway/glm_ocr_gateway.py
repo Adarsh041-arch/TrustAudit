@@ -1,4 +1,5 @@
 """Local GLM-OCR gateway for llama.cpp's OpenAI-compatible server."""
+
 from __future__ import annotations
 
 import base64
@@ -50,20 +51,18 @@ class GlmOcrGateway:
         timeout: int | None = None,
         max_retries: int | None = None,
     ) -> None:
-        self.base_url = (base_url or os.getenv("GLM_OCR_BASE_URL", DEFAULT_BASE_URL)).rstrip("/")
-        self.model = model or os.getenv("GLM_OCR_MODEL", DEFAULT_MODEL)
+        self.base_url = (base_url or (os.getenv("GLM_OCR_BASE_URL") or DEFAULT_BASE_URL)).rstrip(
+            "/"
+        )
+        self.model = model or (os.getenv("GLM_OCR_MODEL") or DEFAULT_MODEL)
         self.timeout = timeout if timeout is not None else _env_int("GLM_OCR_TIMEOUT", 120)
         self.max_retries = (
             max_retries if max_retries is not None else _env_int("GLM_OCR_MAX_RETRIES", 1)
         )
         self.network_call_count = 0
         self.last_cache_hit = False
-        self.transcription_max_tokens = _env_int(
-            "GLM_OCR_TRANSCRIPTION_MAX_TOKENS", 4096
-        )
-        self.structured_max_tokens = _env_int(
-            "GLM_OCR_STRUCTURED_MAX_TOKENS", 1536
-        )
+        self.transcription_max_tokens = _env_int("GLM_OCR_TRANSCRIPTION_MAX_TOKENS", 4096)
+        self.structured_max_tokens = _env_int("GLM_OCR_STRUCTURED_MAX_TOKENS", 1536)
 
     def health(self) -> dict[str, Any]:
         try:
@@ -95,7 +94,11 @@ class GlmOcrGateway:
         response_schema: dict[str, Any] | None = None,
     ) -> ModelResponse:
         return self.extract_limited(
-            images, prompt, tenant_id, pii_classes, response_schema,
+            images,
+            prompt,
+            tenant_id,
+            pii_classes,
+            response_schema,
             max_tokens=_env_int("GLM_OCR_TRANSCRIPTION_MAX_TOKENS", 4096),
         )
 
@@ -144,7 +147,9 @@ class GlmOcrGateway:
                 try:
                     self.network_call_count += 1
                     response = requests.post(
-                        f"{self.base_url}/chat/completions", json=payload, timeout=self.timeout,
+                        f"{self.base_url}/chat/completions",
+                        json=payload,
+                        timeout=self.timeout,
                     )
                     response.raise_for_status()
                     data = response.json()
@@ -169,10 +174,13 @@ class GlmOcrGateway:
                     last_error = exc
                     logger.warning(
                         "GLM-OCR attempt %d/%d failed for tenant %s: %s",
-                        attempt + 1, self.max_retries + 1, tenant_id, exc,
+                        attempt + 1,
+                        self.max_retries + 1,
+                        tenant_id,
+                        exc,
                     )
                     if attempt < self.max_retries:
-                        time.sleep(min(2 ** attempt, 2))
+                        time.sleep(min(2**attempt, 2))
         raise RuntimeError(f"GLM-OCR failed after {self.max_retries + 1} attempt(s): {last_error}")
 
     def transcribe(self, image: bytes, tenant_id: str) -> ModelResponse:
@@ -193,7 +201,9 @@ class GlmOcrGateway:
                 _TRANSCRIPT_CACHE.pop(key, None)
         self.last_cache_hit = False
         response = self.extract_limited(
-            [image], "Text Recognition:", tenant_id,
+            [image],
+            "Text Recognition:",
+            tenant_id,
             max_tokens=_env_int("GLM_OCR_TRANSCRIPTION_MAX_TOKENS", 4096),
         )
         with _CACHE_LOCK:

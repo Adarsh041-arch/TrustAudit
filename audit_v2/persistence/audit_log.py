@@ -3,6 +3,7 @@
 Provides an append-only audit trail where each entry includes sha256(prev_hash || payload).
 Any historical mutation or tampering breaks the hash chain and is detected by verify_chain().
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -72,7 +73,10 @@ class AuditLog:
     ) -> AuditLogEntry:
         payload = payload or {}
         ts = timestamp or datetime.now(UTC).isoformat()
-        prev = self._last_hash
+        prev = next(
+            (e.hash_chain for e in reversed(self._entries) if e.tenant_id == tenant_id),
+            GENESIS_HASH,
+        )
 
         entry_dummy = AuditLogEntry(
             entry_id=entry_id,
@@ -104,7 +108,10 @@ class AuditLog:
         self._last_hash = entry_hash
         logger.info(
             "AuditLog entry %s recorded for tenant %s (action=%s, hash=%s)",
-            entry_id, tenant_id, action, entry_hash[:8],
+            entry_id,
+            tenant_id,
+            action,
+            entry_hash[:8],
         )
         return entry
 
@@ -113,15 +120,15 @@ class AuditLog:
 
         Returns (True, None) if valid, or (False, failure_reason) if tampered.
         """
-        expected_prev = GENESIS_HASH
+        expected_by_tenant: dict[str, str] = {}
         for idx, entry in enumerate(self._entries):
-            if entry.prev_hash != expected_prev:
+            if entry.prev_hash != expected_by_tenant.get(entry.tenant_id, GENESIS_HASH):
                 return False, f"Entry {entry.entry_id} at index {idx}: prev_hash mismatch"
 
             recomputed = entry.compute_hash()
             if entry.hash_chain != recomputed:
                 return False, f"Entry {entry.entry_id} at index {idx}: hash_chain payload tampered"
 
-            expected_prev = entry.hash_chain
+            expected_by_tenant[entry.tenant_id] = entry.hash_chain
 
         return True, None

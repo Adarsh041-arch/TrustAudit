@@ -429,7 +429,7 @@ class TestReferenceIntegrity:
         (reference_integrity.check_quantity_dc, "CHK-REF-QTY-002"),
     ])
     def test_cross_document_checks_skip(self, fn, check_id):
-        assert fn(ctx(doc(), check_id)).status == FindingStatus.SKIPPED
+        assert fn(ctx(doc(), check_id)).status == FindingStatus.NOT_RUN
 
 
 class TestFormatCompleteness:
@@ -527,4 +527,4 @@ class TestDuplicate:
     def test_duplicate_skips_rather_than_passing(self):
         """An unimplemented corpus check must never report a document compliant."""
         r = duplicate.check_duplicate_document(ctx(doc(), "CHK-ARITH-LINE-001"))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN

@@ -6,6 +6,7 @@ re-evaluates the cross-document checks for its cluster. A re-evaluated
 (document_id, check_id) pair supersedes the earlier finding rather than
 duplicating it — findings have a lifecycle, not just a creation.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -61,7 +62,8 @@ class ClusterAuditor:
         self._by_id = entries_by_id(catalog)
         self._runner = CheckRunner(catalog_checks=catalog.checks)
         self._check_ids = [
-            c for c in CLUSTER_CHECK_IDS
+            c
+            for c in CLUSTER_CHECK_IDS
             if self._by_id.get(c) is not None
             and self._by_id[c].determinism == CheckDeterminism.DETERMINISTIC
         ]
@@ -84,64 +86,60 @@ class ClusterAuditor:
         superseding). Earlier findings for the same (document, check) are
         moved to history with the new finding's `supersedes` pointing at them.
         """
+        self._documents = [
+            d
+            for d in self._documents
+            if (d.tenant_id, d.document_id) != (document.tenant_id, document.document_id)
+        ]
         self._documents.append(document)
         clusters = build_clusters(self._documents)
         corpus_index = build_corpus_index(self._documents)
 
-        cluster = next(
-            (c for c in clusters
-             if any(d.document_id == document.document_id for d in c.documents)),
-            None,
-        )
-        if cluster is None:  # cannot happen — every doc lands in some cluster
-            logger.error("Document %s missing from all clusters", document.document_id)
-            return []
-
         emitted: list[Finding] = []
         # The cluster context determines cross-document verdicts: hash the
         # member set so the fingerprint changes when the cluster grows.
-        cluster_hash = hashlib.sha256(
-            "|".join(sorted(d.document_id for d in cluster.documents)).encode()
-        ).hexdigest()[:16]
-        for member in cluster.documents:
-            applicable = [
-                c for c in self._check_ids
-                if member.doc_type in self._by_id[c].applies_to
-            ]
-            if not applicable:
-                continue
-            results = self._runner.run_all(
-                document=member,
-                included_check_ids=applicable,
-                skipped_check_ids={},
-                cluster=cluster,
-                corpus_index=corpus_index,
-            )
-            for cr in results:
-                entry = self._by_id[cr.check_id]
-                finding = make_finding_from_result(
-                    result=cr,
-                    check_entry=entry,
+        for cluster in clusters:
+            cluster_hash = hashlib.sha256(
+                "|".join(sorted(d.model_dump_json() for d in self._documents)).encode()
+            ).hexdigest()[:16]
+            for member in cluster.documents:
+                applicable = [
+                    c for c in self._check_ids if member.doc_type in self._by_id[c].applies_to
+                ]
+                if not applicable:
+                    continue
+                results = self._runner.run_all(
                     document=member,
-                    ruleset_version=self._ruleset_version,
-                    prompt_version=self._prompt_version,
-                    model_version=self._model_version,
-                    context_hash=cluster_hash,
+                    included_check_ids=applicable,
+                    skipped_check_ids={},
+                    cluster=cluster,
+                    corpus_index=corpus_index,
                 )
-                key = (member.document_id, cr.check_id)
-                prior = self._active.get(key)
-                if prior is not None:
-                    verdict_unchanged = (
-                        prior.status == finding.status
-                        and prior.expected == finding.expected
-                        and prior.actual == finding.actual
-                        and prior.message == finding.message
+                for cr in results:
+                    entry = self._by_id[cr.check_id]
+                    finding = make_finding_from_result(
+                        result=cr,
+                        check_entry=entry,
+                        document=member,
+                        ruleset_version=self._ruleset_version,
+                        prompt_version=self._prompt_version,
+                        model_version=self._model_version,
+                        context_hash=cluster_hash,
                     )
-                    if verdict_unchanged:
-                        continue  # same verdict — keep the original, no duplicate
-                    finding.supersedes = prior.finding_id
-                    self._history.append(prior)
-                self._active[key] = finding
-                emitted.append(finding)
+                    key = (member.document_id, cr.check_id)
+                    prior = self._active.get(key)
+                    if prior is not None:
+                        verdict_unchanged = (
+                            prior.status == finding.status
+                            and prior.expected == finding.expected
+                            and prior.actual == finding.actual
+                            and prior.message == finding.message
+                        )
+                        if verdict_unchanged:
+                            continue  # same verdict — keep the original, no duplicate
+                        finding.supersedes = prior.finding_id
+                        self._history.append(prior)
+                    self._active[key] = finding
+                    emitted.append(finding)
 
         return emitted

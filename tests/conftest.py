@@ -204,3 +204,18 @@ def _stub_pipeline_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
     # Unit/integration tests are hermetic even when a developer happens to have
     # llama-server running. Tests that exercise GLM inject their own gateway.
     monkeypatch.setenv("V2_VISION_BACKEND", "none")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_operational_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("V2_ARTIFACT_ROOT", str(tmp_path / "artifacts"))
+    monkeypatch.delenv("V2_ARTIFACT_BUCKET", raising=False)
+    monkeypatch.setenv("V2_JOB_BACKEND", "local")
+    import sys
+    server = sys.modules.get("audit_v2.server")
+    if server is not None:
+        from audit_v2.persistence.operational_store import OperationalStore
+        monkeypatch.setattr(server, "OPERATIONAL_STORE", OperationalStore(tmp_path / "operational.sqlite3"))
+        from audit_v2.persistence.session_store import AuditSessionStore
+        monkeypatch.setattr(server, "SESSION_STORE", AuditSessionStore(tmp_path / "sessions.sqlite3"))
+        monkeypatch.setenv("V2_AUTH_MODE", "local")

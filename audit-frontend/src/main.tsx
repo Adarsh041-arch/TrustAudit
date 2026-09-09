@@ -22,7 +22,7 @@ function Root() {
 
   return (
     <>
-      <div className="fixed bottom-6 right-6 z-[9999] bg-slate-900/90 border border-slate-700/80 text-slate-100 px-4 py-2 rounded-full text-xs font-semibold shadow-2xl backdrop-blur-md flex items-center gap-3 transition-all hover:scale-105">
+      <div hidden={mode === 'v2'} className="fixed bottom-6 right-6 z-[9999] bg-slate-900/90 border border-slate-700/80 text-slate-100 px-4 py-2 rounded-full text-xs font-semibold shadow-2xl backdrop-blur-md flex items-center gap-3 transition-all hover:scale-105">
         <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">UI Mode:</span>
         <button
           onClick={() => toggleMode('v1')}

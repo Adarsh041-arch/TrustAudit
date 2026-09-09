@@ -10,10 +10,13 @@ Rules per field (header, line item, tax line):
                          disagreement (routes to human review upstream)
 - one source only     -> keep it, penalized confidence (VLM-only or regex-only)
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from decimal import Decimal
+from typing import overload
 
 from audit_v2.domain.models import (
     Coverage,
@@ -28,14 +31,29 @@ from audit_v2.extraction.parser import parse_amount, parse_date
 
 MERGE_VERSION = "dual_1.0.0"
 
-_MONEY_FIELDS = frozenset({
-    "subtotal", "grand_total", "discount_amount", "discount_percentage",
-    "opening_balance", "receipts", "payments", "closing_balance",
-})
-_DATE_FIELDS = frozenset({
-    "invoice_date", "due_date", "order_date", "delivery_date", "grn_date",
-    "expiry_date", "received_date",
-})
+_MONEY_FIELDS = frozenset(
+    {
+        "subtotal",
+        "grand_total",
+        "discount_amount",
+        "discount_percentage",
+        "opening_balance",
+        "receipts",
+        "payments",
+        "closing_balance",
+    }
+)
+_DATE_FIELDS = frozenset(
+    {
+        "invoice_date",
+        "due_date",
+        "order_date",
+        "delivery_date",
+        "grn_date",
+        "expiry_date",
+        "received_date",
+    }
+)
 
 
 @dataclass
@@ -44,19 +62,31 @@ class MergeResult:
     disagreements: dict[str, str] = field(default_factory=dict)
 
 
-def _normalized(pv: ProvenancedValue, field_name: str) -> str | date | None:
+def _normalized(pv: ProvenancedValue, field_name: str) -> str | date | Decimal:
     if field_name in _MONEY_FIELDS:
         parsed = parse_amount(pv.value)
         return parsed if parsed is not None else pv.value.strip().casefold()
     if field_name in _DATE_FIELDS:
-        parsed = parse_date(pv.value)
-        return parsed if parsed is not None else pv.value.strip().casefold()
+        parsed_date = parse_date(pv.value)
+        return parsed_date if parsed_date is not None else pv.value.strip().casefold()
     return pv.value.strip().casefold()
 
 
 def _agree(pv_a: ProvenancedValue, pv_b: ProvenancedValue, field_name: str) -> bool:
     a, b = _normalized(pv_a, field_name), _normalized(pv_b, field_name)
     return a == b
+
+
+@overload
+def _merge_pv(
+    field_name: str, regex_pv: ProvenancedValue, vlm_pv: ProvenancedValue
+) -> tuple[ProvenancedValue, str | None]: ...
+
+
+@overload
+def _merge_pv(
+    field_name: str, regex_pv: ProvenancedValue | None, vlm_pv: ProvenancedValue | None
+) -> tuple[ProvenancedValue | None, str | None]: ...
 
 
 def _merge_pv(
@@ -72,23 +102,34 @@ def _merge_pv(
         return regex_pv, None
 
     if _agree(regex_pv, vlm_pv, field_name):
-        merged = regex_pv.model_copy(update={
-            "confidence": compute_field_confidence(
-                field_name, regex_pv.confidence, vlm_pv.confidence, 1.0,
-            ),
-        })
+        merged = regex_pv.model_copy(
+            update={
+                "confidence": compute_field_confidence(
+                    field_name,
+                    regex_pv.confidence,
+                    vlm_pv.confidence,
+                    1.0,
+                ),
+            }
+        )
         return merged, None
 
-    merged = regex_pv.model_copy(update={
-        "confidence": compute_field_confidence(
-            field_name, regex_pv.confidence, vlm_pv.confidence, 0.0,
-        ),
-    })
+    merged = regex_pv.model_copy(
+        update={
+            "confidence": compute_field_confidence(
+                field_name,
+                regex_pv.confidence,
+                vlm_pv.confidence,
+                0.0,
+            ),
+        }
+    )
     return merged, f"{regex_pv.raw} vs {vlm_pv.raw}"
 
 
 def _match_vlm_line(
-    line: LineItem, vlm_lines: list[LineItem],
+    line: LineItem,
+    vlm_lines: list[LineItem],
 ) -> LineItem | None:
     for candidate in vlm_lines:
         if candidate.line_number == line.line_number:
@@ -129,20 +170,20 @@ def _merge_line_items(
         hsn, d = _merge_pv("hsn_sac", line.hsn_sac, match.hsn_sac)
         if d:
             disagreements[f"{prefix}.hsn_sac"] = d
-        quantity_unit, d = _merge_pv(
-            "quantity_unit", line.quantity_unit, match.quantity_unit
-        )
+        quantity_unit, d = _merge_pv("quantity_unit", line.quantity_unit, match.quantity_unit)
         if d:
             disagreements[f"{prefix}.quantity_unit"] = d
-        merged.append(LineItem(
-            line_number=line.line_number,
-            description=desc,
-            quantity=qty,
-            unit_price=price,
-            line_total=total,
-            hsn_sac=hsn,
-            quantity_unit=quantity_unit,
-        ))
+        merged.append(
+            LineItem(
+                line_number=line.line_number,
+                description=desc,
+                quantity=qty,
+                unit_price=price,
+                line_total=total,
+                hsn_sac=hsn,
+                quantity_unit=quantity_unit,
+            )
+        )
     for line in vlm_lines:
         if line.line_number not in used:
             merged.append(line)
@@ -158,7 +199,8 @@ def _merge_tax_lines(
     used: set[int] = set()
     for line in regex_lines:
         match = next(
-            (c for c in vlm_lines if c.line_number == line.line_number), None,
+            (c for c in vlm_lines if c.line_number == line.line_number),
+            None,
         )
         if match is None:
             merged.append(line)
@@ -173,21 +215,23 @@ def _merge_tax_lines(
             ("sgst", line.sgst, match.sgst),
             ("total_tax", line.total_tax, match.total_tax),
         ]
-        values: dict[str, ProvenancedValue | None] = {}
+        values: dict[str, ProvenancedValue] = {}
         for name, a, b in fields:
             pv, d = _merge_pv(name, a, b)
             if d:
                 disagreements[f"{prefix}.{name}"] = d
             values[name] = pv
-        merged.append(TaxLine(
-            line_number=line.line_number,
-            description=values["description"],
-            taxable_value=values["taxable_value"],
-            rate=values["rate"],
-            cgst=values["cgst"],
-            sgst=values["sgst"],
-            total_tax=values["total_tax"],
-        ))
+        merged.append(
+            TaxLine(
+                line_number=line.line_number,
+                description=values["description"],
+                taxable_value=values["taxable_value"],
+                rate=values["rate"],
+                cgst=values["cgst"],
+                sgst=values["sgst"],
+                total_tax=values["total_tax"],
+            )
+        )
     for line in vlm_lines:
         if line.line_number not in used:
             merged.append(line)
@@ -195,13 +239,34 @@ def _merge_tax_lines(
 
 
 _HEADER_PV_FIELDS = (
-    "vendor_name", "vendor_address", "vendor_gstin", "buyer_name",
-    "buyer_gstin", "invoice_date", "due_date", "po_reference",
-    "invoice_number", "po_number", "challan_number", "grn_number",
-    "grand_total", "amount_in_words", "order_date", "delivery_date",
-    "payment_terms", "delivery_address", "subtotal", "discount_amount",
-    "discount_percentage", "opening_balance", "receipts", "payments",
-    "closing_balance", "expiry_date", "received_date", "grn_date",
+    "vendor_name",
+    "vendor_address",
+    "vendor_gstin",
+    "buyer_name",
+    "buyer_gstin",
+    "invoice_date",
+    "due_date",
+    "po_reference",
+    "invoice_number",
+    "po_number",
+    "challan_number",
+    "grn_number",
+    "grand_total",
+    "amount_in_words",
+    "order_date",
+    "delivery_date",
+    "payment_terms",
+    "delivery_address",
+    "subtotal",
+    "discount_amount",
+    "discount_percentage",
+    "opening_balance",
+    "receipts",
+    "payments",
+    "closing_balance",
+    "expiry_date",
+    "received_date",
+    "grn_date",
 )
 
 

@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "EvidenceItem": {
+      "properties": {
+        "document_id": {
+          "title": "Document Id",
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "title": "Page",
+          "type": "integer"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "raw": {
+          "title": "Raw",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document_id",
+        "page",
+        "field",
+        "raw"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "FindingStatus": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "SKIPPED",
+        "NEEDS_REVIEW",
+        "NOT_APPLICABLE",
+        "NOT_RUN",
+        "ERROR"
+      ],
+      "title": "FindingStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "coverage": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Coverage",
+      "type": "object"
+    },
+    "check_id": {
+      "title": "Check Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/FindingStatus"
+    },
+    "expected": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected"
+    },
+    "actual": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Actual"
+    },
+    "delta": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delta"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceItem"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "requires_human_review": {
+      "default": false,
+      "title": "Requires Human Review",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "check_id",
+    "status",
+    "message"
+  ],
+  "title": "CheckResult",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://audit-v2.local/schemas/check_result.json"
+}

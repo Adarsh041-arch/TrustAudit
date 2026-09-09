@@ -132,6 +132,10 @@ class TestParsePoReference:
         from audit_v2.extraction.parser import extract_po_reference
         assert extract_po_reference("This is an invoice without PO") is None
 
+    def test_po_label_without_value_is_not_a_reference(self):
+        from audit_v2.extraction.parser import extract_po_reference
+        assert extract_po_reference("PO Reference") is None
+
 
 class TestValidateIfsc:
     def test_valid_ifsc(self):

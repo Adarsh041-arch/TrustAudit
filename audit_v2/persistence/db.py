@@ -35,5 +35,5 @@ def tenant_session(conn: psycopg.Connection, tenant_id: str):
     """
     with conn.transaction():
         with conn.cursor() as cur:
-            cur.execute(f"SET LOCAL app.tenant_id = '{tenant_id}'")
+            cur.execute("SELECT set_config('app.tenant_id', %s, true)", (tenant_id,))
         yield conn

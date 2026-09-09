@@ -3,6 +3,7 @@
 V1 bug not reproduced: `logger` is defined here so the reportlab-missing
 fallback path cannot raise NameError.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,18 +29,24 @@ except ImportError:  # pragma: no cover
     REPORTLAB_AVAILABLE = False
 
 SEVERITY_COLORS = {
-    "critical": "#993C1D", "high": "#C2410C", "medium": "#D97706", "low": "#6B7280",
+    "critical": "#993C1D",
+    "high": "#C2410C",
+    "medium": "#D97706",
+    "low": "#6B7280",
 }
 
 
 def _per_doc_rows(doc: dict[str, Any]) -> list[list[str]]:
     rows = []
     for r in doc.get("failed_rules", []):
-        rows.append([
-            r.get("rule_id", ""), r.get("severity", ""),
-            f"{r.get('finding', '')} — evidence: {r.get('evidence', '')}",
-            r.get("impact", "") or r.get("rule_title", ""),
-        ])
+        rows.append(
+            [
+                r.get("rule_id", ""),
+                r.get("severity", ""),
+                f"{r.get('finding', '')} — evidence: {r.get('evidence', '')}",
+                r.get("impact", "") or r.get("rule_title", ""),
+            ]
+        )
     return rows
 
 
@@ -61,7 +68,9 @@ def generate_docx_report(payload: dict[str, Any]) -> bytes:
     scored = [float(d["score"]) for d in docs if d.get("score") is not None]
     avg = sum(scored) / len(scored) if scored else None
     doc.add_paragraph(
-        f"Overall score: {avg:.1f}%" if avg is not None else "Overall score: Not audited"
+        f"Average review-priority score: {avg:.1f}/100"
+        if avg is not None
+        else "Overall score: Not audited"
     )
     if payload.get("executive_summary"):
         doc.add_heading("Executive summary", level=1)
@@ -72,14 +81,20 @@ def generate_docx_report(payload: dict[str, Any]) -> bytes:
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.LEFT
         run = p.add_run(
-            f"Score: {_score_label(d)} — {d.get('risk_level', '')} — "
-            f"passed: {d.get('passed')}"
+            f"Review-priority score: {_score_label(d)} — {d.get('risk_level', '')} — "
+            f"Audit decision: {d.get('audit_status', 'INCOMPLETE')}"
         )
         run.bold = True
         if d.get("summary_text"):
             doc.add_paragraph(str(d["summary_text"]))
-        ml = d.get("ml_prediction") or {}
-        doc.add_paragraph(f"Prediction: {ml.get('prediction', 'N/A')} ({ml.get('mode', '')})")
+        decision = d.get("decision") or {}
+        doc.add_paragraph(f"Scope: {decision.get('scope', 'Legacy report; scope unverified')}")
+        doc.add_paragraph(
+            f"Mandatory checks completed: {decision.get('completed_checks', 0)}/"
+            f"{decision.get('required_checks', 0)}"
+        )
+        for blocker in decision.get("blockers", []):
+            doc.add_paragraph(str(blocker), style="List Bullet")
         if d.get("human_review_recommended"):
             doc.add_paragraph("HUMAN REVIEW RECOMMENDED")
         rows = _per_doc_rows(d)
@@ -100,6 +115,7 @@ def generate_docx_report(payload: dict[str, Any]) -> bytes:
             if d.get("preview_base64"):
                 try:
                     import base64
+
                     buf = BytesIO(base64.b64decode(d["preview_base64"]))
                     doc.add_picture(buf, width=Inches(1.5))
                 except Exception:
@@ -120,7 +136,10 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
         buf, pagesize=letter, leftMargin=54, rightMargin=54, topMargin=54, bottomMargin=54
     )
     title = ParagraphStyle(
-        "Title", fontName="Helvetica-Bold", fontSize=16, leading=20,
+        "Title",
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=20,
         textColor=colors.HexColor("#0F6E56"),
     )
     body = ParagraphStyle("Body", fontName="Helvetica", fontSize=9, leading=12)
@@ -133,9 +152,17 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
         )
     )
     if payload.get("executive_summary"):
-        story.append(Paragraph("Executive summary", ParagraphStyle(
-            "Executive", parent=body, fontName="Helvetica-Bold", fontSize=11,
-        )))
+        story.append(
+            Paragraph(
+                "Executive summary",
+                ParagraphStyle(
+                    "Executive",
+                    parent=body,
+                    fontName="Helvetica-Bold",
+                    fontSize=11,
+                ),
+            )
+        )
         story.append(Paragraph(str(payload["executive_summary"]), body))
     for d in docs:
         story.append(
@@ -148,17 +175,28 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
             story.append(Paragraph(str(d["summary_text"]), body))
         story.append(
             Paragraph(
-                f"Score: {_score_label(d)} — {d.get('risk_level', '')} — "
-                f"passed: {d.get('passed')}",
+                f"Review-priority score: {_score_label(d)} — {d.get('risk_level', '')} — "
+                f"Audit decision: {d.get('audit_status', 'INCOMPLETE')}",
                 body,
             )
         )
-        ml = d.get("ml_prediction") or {}
+        from html import escape
+
+        decision = d.get("decision") or {}
         story.append(
             Paragraph(
-                f"Prediction: {ml.get('prediction', 'N/A')} ({ml.get('mode', '')})", body
+                escape(f"Scope: {decision.get('scope', 'Legacy report; scope unverified')}"), body
             )
         )
+        story.append(
+            Paragraph(
+                f"Mandatory checks completed: {decision.get('completed_checks', 0)}/"
+                f"{decision.get('required_checks', 0)}",
+                body,
+            )
+        )
+        for blocker in decision.get("blockers", []):
+            story.append(Paragraph(escape(str(blocker)), body))
         if d.get("human_review_recommended"):
             story.append(
                 Paragraph(
@@ -179,10 +217,14 @@ def generate_pdf_report(payload: dict[str, Any]) -> bytes:
                     ),
                 )
             t = Table(rows, colWidths=[80, 60, 220, 144])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E5E7EB")),
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
-            ]))
+            t.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E5E7EB")),
+                        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#D1D5DB")),
+                    ]
+                )
+            )
             story.append(t)
     doc.build(story)
     return buf.getvalue()

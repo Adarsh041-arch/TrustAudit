@@ -15,6 +15,7 @@ Every collaborator that touches the network (VLM gateway, text gateway, OCR
 engine) is injectable and degrades gracefully, so the pipeline runs — with fewer
 evidences — when a key or package is missing, and is fully mockable in tests.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,6 +57,7 @@ from audit_v2.extraction.schemas import (
     supplement_from_transcript,
     to_extracted_document,
 )
+from audit_v2.extraction.text_extractor import TextExtractor
 from audit_v2.extraction.transcript_parser import SUPPORTED_TYPES, parse_transcript
 from audit_v2.extraction.vlm_extractor import render_pages_to_jpeg
 from audit_v2.gateway.nvidia_gateway import NvidiaGateway
@@ -70,6 +72,7 @@ from audit_v2.pipeline.events import (
     StepStatus,
     emit,
 )
+from audit_v2.security.injection_detector import scan_document, scan_text
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +153,7 @@ def _regex_evidence(document_id: str, doc: ExtractedDocument | None, note: str) 
         source="regex",
         payload=payload,
         summary=(
-            f"Regex read {len(doc.line_items)} line item(s); "
-            f"grand_total={payload['grand_total']}"
+            f"Regex read {len(doc.line_items)} line item(s); grand_total={payload['grand_total']}"
         ),
         confidence=0.9,
     )
@@ -316,7 +318,7 @@ def _vlm_prompt(doc_type: DocumentType) -> str:
         "Never calculate, repair, reconcile, or infer a missing value. Use "
         "null for any field not present. Put anything salient the fixed fields "
         "do not capture into 'other_necessary_details' as short strings. Write "
-        "monetary amounts as plain numeric strings (e.g. \"1250.00\"). Return "
+        'monetary amounts as plain numeric strings (e.g. "1250.00"). Return '
         "ONLY the JSON object."
     )
 
@@ -330,19 +332,24 @@ def _recovery_prompt(doc_type: DocumentType, reasons: list[str]) -> str:
     )
 
 
-def _transcribe_page(
-    gateway: VisionGateway, image: bytes, tenant_id: str
-) -> tuple[str, str, bool]:
+def _transcribe_page(gateway: VisionGateway, image: bytes, tenant_id: str) -> tuple[str, str, bool]:
     transcribe = getattr(gateway, "transcribe", None)
     if callable(transcribe):
         response = transcribe(image, tenant_id)
+        if scan_text(response.content):
+            raise ValueError("Suspicious instructions in document transcription")
         return (
-            response.content.strip(), response.model_version,
+            response.content.strip(),
+            response.model_version,
             bool(getattr(gateway, "last_cache_hit", False)),
         )
     response = gateway.extract(
-        images=[image], prompt="Text Recognition:", tenant_id=tenant_id,
+        images=[image],
+        prompt="Text Recognition:",
+        tenant_id=tenant_id,
     )
+    if scan_text(response.content):
+        raise ValueError("Suspicious instructions in document transcription")
     return response.content.strip(), response.model_version, False
 
 
@@ -363,9 +370,7 @@ def _self_check(
 
     vlm_po = getattr(vlm_instance, "po_reference", None) or getattr(vlm_instance, "po_number", None)
     corro_po = (
-        regex_doc.header.po_reference.value
-        if regex_doc and regex_doc.header.po_reference
-        else None
+        regex_doc.header.po_reference.value if regex_doc and regex_doc.header.po_reference else None
     )
     if corro_po is None and ocr_fields.get("available"):
         corro_po = ocr_fields.get("po_reference")
@@ -516,37 +521,42 @@ def _run_glm_pages(
         try:
             transcript = transcripts.get(page, "").strip()
             if not transcript:
-                transcript, model_version, hit = _transcribe_page(
-                    gateway, image, tenant_id
-                )
+                transcript, model_version, hit = _transcribe_page(gateway, image, tenant_id)
                 cache_hit = cache_hit or hit
             if not transcript:
                 raise ValueError("empty transcription")
-            evidences.append(PipelineEvidence(
-                document_id=document_id,
-                nature=EvidenceNature.OCR_REGEX_OBSERVATIONS,
-                source=f"{vision_backend}_transcription",
-                payload={
-                    "text": transcript[:12000],
-                    "truncated": len(transcript) > 12000,
-                },
-                summary=f"{vision_backend} transcribed page {page}",
-                confidence=0.85,
-                page=page,
-            ))
+            evidences.append(
+                PipelineEvidence(
+                    document_id=document_id,
+                    nature=EvidenceNature.OCR_REGEX_OBSERVATIONS,
+                    source=f"{vision_backend}_transcription",
+                    payload={
+                        "text": transcript[:12000],
+                        "truncated": len(transcript) > 12000,
+                    },
+                    summary=f"{vision_backend} transcribed page {page}",
+                    confidence=0.85,
+                    page=page,
+                )
+            )
 
             page_issues: list[GroundingIssue] = []
             page_disagreements: dict[str, str] = {}
-            if doc_type in SUPPORTED_TYPES and os.getenv(
-                "V2_EXTRACTION_POLICY", "balanced"
-            ) == "balanced":
+            if (
+                doc_type in SUPPORTED_TYPES
+                and os.getenv("V2_EXTRACTION_POLICY", "balanced") == "balanced"
+            ):
                 parsed = parse_transcript(doc_type, transcript, first_page=page == 1)
                 deterministic = ground_instance(parsed.instance, transcript, page)
                 page_issues.extend(deterministic.issues)
-                evidences.append(_vlm_evidence(
-                    document_id, deterministic.instance,
-                    f"{vision_backend}_transcript_deterministic", page,
-                ))
+                evidences.append(
+                    _vlm_evidence(
+                        document_id,
+                        deterministic.instance,
+                        f"{vision_backend}_transcript_deterministic",
+                        page,
+                    )
+                )
                 page_doc = to_extracted_document(
                     deterministic.instance,
                     document_id=document_id,
@@ -567,23 +577,25 @@ def _run_glm_pages(
                             prompt=_recovery_prompt(doc_type, parsed.fallback_reasons),
                             schema_model=schema_model,
                             tenant_id=tenant_id,
-                            max_tokens=int(getattr(
-                                gateway,
-                                "structured_max_tokens",
-                                os.getenv("GLM_OCR_STRUCTURED_MAX_TOKENS", "1536"),
-                            )),
+                            max_tokens=int(
+                                getattr(
+                                    gateway,
+                                    "structured_max_tokens",
+                                    os.getenv("GLM_OCR_STRUCTURED_MAX_TOKENS", "1536"),
+                                )
+                            ),
                         )
-                        recovered = supplement_from_transcript(
-                            recovered, doc_type, transcript
-                        )
-                        grounded_recovery = ground_instance(
-                            recovered, transcript, page
-                        )
+                        recovered = supplement_from_transcript(recovered, doc_type, transcript)
+                        grounded_recovery = ground_instance(recovered, transcript, page)
                         page_issues.extend(grounded_recovery.issues)
-                        evidences.append(_vlm_evidence(
-                            document_id, grounded_recovery.instance,
-                            f"{vision_backend}_structured", page,
-                        ))
+                        evidences.append(
+                            _vlm_evidence(
+                                document_id,
+                                grounded_recovery.instance,
+                                f"{vision_backend}_structured",
+                                page,
+                            )
+                        )
                         recovered_doc = to_extracted_document(
                             grounded_recovery.instance,
                             document_id=document_id,
@@ -598,12 +610,17 @@ def _run_glm_pages(
                     except Exception as recovery_error:
                         logger.warning(
                             "Structured recovery failed on page %d: %s",
-                            page, recovery_error,
+                            page,
+                            recovery_error,
                         )
-                        page_issues.append(GroundingIssue(
-                            "structured_fallback", str(recovery_error), page,
-                            "targeted structured fallback failed",
-                        ))
+                        page_issues.append(
+                            GroundingIssue(
+                                "structured_fallback",
+                                str(recovery_error),
+                                page,
+                                "targeted structured fallback failed",
+                            )
+                        )
             else:
                 instance = extract_structured(
                     gateway=gateway,
@@ -615,10 +632,14 @@ def _run_glm_pages(
                 instance = supplement_from_transcript(instance, doc_type, transcript)
                 grounded = ground_instance(instance, transcript, page)
                 page_issues.extend(grounded.issues)
-                evidences.append(_vlm_evidence(
-                    document_id, grounded.instance,
-                    f"{vision_backend}_structured", page,
-                ))
+                evidences.append(
+                    _vlm_evidence(
+                        document_id,
+                        grounded.instance,
+                        f"{vision_backend}_structured",
+                        page,
+                    )
+                )
                 page_doc = to_extracted_document(
                     grounded.instance,
                     document_id=document_id,
@@ -630,19 +651,21 @@ def _run_glm_pages(
 
             issues.extend(page_issues)
             for issue in page_issues:
-                evidences.append(PipelineEvidence(
-                    document_id=document_id,
-                    nature=EvidenceNature.EXTRACTED_FIELDS,
-                    source="grounding_rejection",
-                    payload={
-                        "field": issue.field,
-                        "candidate": issue.candidate,
-                        "reason": issue.reason,
-                    },
-                    summary=f"Rejected unsupported value for {issue.field}",
-                    confidence=1.0,
-                    page=page,
-                ))
+                evidences.append(
+                    PipelineEvidence(
+                        document_id=document_id,
+                        nature=EvidenceNature.EXTRACTED_FIELDS,
+                        source="grounding_rejection",
+                        payload={
+                            "field": issue.field,
+                            "candidate": issue.candidate,
+                            "reason": issue.reason,
+                        },
+                        summary=f"Rejected unsupported value for {issue.field}",
+                        confidence=1.0,
+                        page=page,
+                    )
+                )
             page_doc.model_version = model_version
             page_doc.extraction_disagreements.update(page_disagreements)
             _set_page_provenance(page_doc, page)
@@ -650,15 +673,17 @@ def _run_glm_pages(
         except Exception as exc:
             logger.warning("Vision page %d failed for %s: %s", page, document_id, exc)
             unreadable.append(page)
-            evidences.append(PipelineEvidence(
-                document_id=document_id,
-                nature=EvidenceNature.OCR_REGEX_OBSERVATIONS,
-                source=f"{vision_backend}_transcription",
-                payload={"available": False, "error": str(exc)},
-                summary=f"{vision_backend} could not read page {page}",
-                confidence=0.0,
-                page=page,
-            ))
+            evidences.append(
+                PipelineEvidence(
+                    document_id=document_id,
+                    nature=EvidenceNature.OCR_REGEX_OBSERVATIONS,
+                    source=f"{vision_backend}_transcription",
+                    payload={"available": False, "error": str(exc)},
+                    summary=f"{vision_backend} could not read page {page}",
+                    confidence=0.0,
+                    page=page,
+                )
+            )
 
     merged = _merge_glm_pages(
         page_documents,
@@ -675,15 +700,15 @@ def _run_glm_pages(
     if observed_calls == 0 and hasattr(gateway, "calls"):
         observed_calls = len(gateway.calls)
     merged.vision_call_count = max(0, observed_calls)
-    merged.glm_call_count = (
-        merged.vision_call_count if vision_backend == "glm_ocr" else 0
-    )
+    merged.glm_call_count = merged.vision_call_count if vision_backend == "glm_ocr" else 0
     merged.structured_fallback_used = fallback_used
     merged.transcript_cache_hit = cache_hit
     merged.fallback_reasons = fallback_reasons
     merged.extraction_strategy = (
-        "transcript_plus_structured_fallback" if fallback_used
-        else "transcript_only" if doc_type in SUPPORTED_TYPES
+        "transcript_plus_structured_fallback"
+        if fallback_used
+        else "transcript_only"
+        if doc_type in SUPPORTED_TYPES
         else "transcript_plus_structured_fallback"
     )
     return merged, issues
@@ -710,6 +735,21 @@ def run_document_pipeline(
     ocr = ocr or RapidOcrExtractor()
     evidences: list[PipelineEvidence] = []
 
+    if mime_type == "application/pdf":
+        try:
+            native_text = "\n".join(b["text"] for b in TextExtractor().extract_text_blocks(data))
+        except RuntimeError:
+            native_text = ""
+        scan = scan_document(native_text, data)
+        if scan.is_suspicious:
+            return DocumentPipelineResult(
+                document_id=document_id,
+                doc_type=doc_type or DocumentType.UNKNOWN,
+                document=None,
+                requires_human_review=True,
+                error=f"QUARANTINED_SECURITY: {scan.summary()}",
+            )
+
     # Page images are rendered before classification so scanned documents can
     # be classified from local transcription, never NVIDIA vision.
     try:
@@ -724,12 +764,9 @@ def run_document_pipeline(
         vlm_gateway = create_vision_gateway()
     vlm_available = vlm_gateway is not None and bool(images)
     gateway_calls_before = (
-        int(getattr(vlm_gateway, "network_call_count", 0))
-        if vlm_gateway is not None else 0
+        int(getattr(vlm_gateway, "network_call_count", 0)) if vlm_gateway is not None else 0
     )
-    fake_calls_before = (
-        len(getattr(vlm_gateway, "calls", [])) if vlm_gateway is not None else 0
-    )
+    fake_calls_before = len(getattr(vlm_gateway, "calls", [])) if vlm_gateway is not None else 0
     classification_cache_hit = False
     page_transcripts: dict[int, str] = {}
 
@@ -754,7 +791,11 @@ def run_document_pipeline(
                 method="native_text",
             )
 
-        if classification.doc_type == DocumentType.UNKNOWN and vlm_available:
+        if (
+            classification.doc_type == DocumentType.UNKNOWN
+            and vlm_available
+            and vlm_gateway is not None
+        ):
             try:
                 transcript, _model, classification_cache_hit = _transcribe_page(
                     vlm_gateway, images[0], tenant_id
@@ -762,7 +803,9 @@ def run_document_pipeline(
                 page_transcripts[1] = transcript
                 backend = getattr(vlm_gateway, "backend", "local_vision")
                 classification = classify_document_detailed(
-                    page_transcripts[1], method=f"{backend}_transcription", page=1,
+                    page_transcripts[1],
+                    method=f"{backend}_transcription",
+                    page=1,
                 )
             except Exception as err:
                 logger.warning(
@@ -791,13 +834,32 @@ def run_document_pipeline(
 
     if doc_type in TEXT_DOC_TYPES:
         document = _run_text_pipeline(
-            data, mime_type, document_id, tenant_id, doc_type, images, page_count,
-            vlm_gateway if vlm_available else None, sink, evidences, page_transcripts,
+            data,
+            mime_type,
+            document_id,
+            tenant_id,
+            doc_type,
+            images,
+            page_count,
+            vlm_gateway if vlm_available else None,
+            sink,
+            evidences,
+            page_transcripts,
         )
     else:
         document, requires_human_review = _run_math_pipeline(
-            data, mime_type, document_id, tenant_id, doc_type, images, page_count,
-            vlm_gateway if vlm_available else None, ocr, sink, evidences, page_transcripts,
+            data,
+            mime_type,
+            document_id,
+            tenant_id,
+            doc_type,
+            images,
+            page_count,
+            vlm_gateway if vlm_available else None,
+            ocr,
+            sink,
+            evidences,
+            page_transcripts,
         )
 
     if document is not None:
@@ -806,20 +868,17 @@ def run_document_pipeline(
         document.classification_method = classification.method
         document.classification_evidence = classification.evidence
         document.alternative_types = classification.alternative_types
-        document.extraction_latency_ms = round(
-            (time.monotonic() - started) * 1000, 2
-        )
+        document.extraction_latency_ms = round((time.monotonic() - started) * 1000, 2)
         if vlm_gateway is not None:
-            real_calls = int(
-                getattr(vlm_gateway, "network_call_count", gateway_calls_before)
-            ) - gateway_calls_before
+            real_calls = (
+                int(getattr(vlm_gateway, "network_call_count", gateway_calls_before))
+                - gateway_calls_before
+            )
             fake_calls = len(getattr(vlm_gateway, "calls", [])) - fake_calls_before
             document.vision_call_count = max(0, real_calls or fake_calls)
             backend = getattr(vlm_gateway, "backend", "glm_ocr")
             document.vision_backend = backend
-            document.glm_call_count = (
-                document.vision_call_count if backend == "glm_ocr" else 0
-            )
+            document.glm_call_count = document.vision_call_count if backend == "glm_ocr" else 0
             document.transcript_cache_hit = (
                 document.transcript_cache_hit or classification_cache_hit
             )
@@ -833,8 +892,12 @@ def run_document_pipeline(
     extractor_version = document.extractor_version if document else "none"
     evidences.append(
         _metadata_evidence(
-            document_id, filename=filename, mime_type=mime_type, page_count=page_count,
-            doc_type=doc_type, classification_confidence=classification_confidence,
+            document_id,
+            filename=filename,
+            mime_type=mime_type,
+            page_count=page_count,
+            doc_type=doc_type,
+            classification_confidence=classification_confidence,
             classification_status=classification.status,
             classification_method=classification.method,
             classification_evidence=list(classification.evidence),
@@ -842,6 +905,23 @@ def run_document_pipeline(
             extractor_version=extractor_version,
         )
     )
+
+    # Preserve lineage: parsing and arithmetic are derived observations.
+    for evidence in evidences:
+        if evidence.source in {"glm_ocr_transcript_deterministic", "glm_ocr_structured"}:
+            evidence.derived_from = [
+                e.evidence_id
+                for e in evidences
+                if e.source == "glm_ocr_transcription"
+                and (e.page == evidence.page or evidence.page is None)
+            ]
+        elif evidence.source == "arithmetic":
+            evidence.derived_from = [
+                e.evidence_id
+                for e in evidences
+                if e.source
+                in {"regex", "rapidocr", "glm_ocr_transcript_deterministic", "glm_ocr_structured"}
+            ]
 
     # ── cross-check (§5) ───────────────────────────────────────────────────────
     emit(sink, document_id, PipelineStep.CROSS_CHECK, StepStatus.START)
@@ -856,12 +936,17 @@ def run_document_pipeline(
     )
     if cross_mode == "always" or (cross_mode == "on_review" and uncertain):
         cross = run_cross_check(
-            evidences, document_id, doc_type, tenant_id, gateway=text_gateway,
+            evidences,
+            document_id,
+            doc_type,
+            tenant_id,
+            gateway=text_gateway,
         )
     else:
         cross = CrossCheckResult(
             document_id=document_id,
-            supported=True,
+            supported=None,
+            execution_status="not_requested",
             summary=f"cross-check skipped by {cross_mode} policy",
         )
     if document is not None and any(
@@ -871,7 +956,10 @@ def run_document_pipeline(
         document.classification_status = ClassificationStatus.CONFLICTED
         requires_human_review = True
     emit(
-        sink, document_id, PipelineStep.CROSS_CHECK, StepStatus.OK,
+        sink,
+        document_id,
+        PipelineStep.CROSS_CHECK,
+        StepStatus.OK,
         detail=f"{len(cross.contradictions)} contradiction(s)",
         contradictions=len(cross.contradictions),
     )
@@ -906,17 +994,18 @@ def _run_math_pipeline(
     """regex → OCR → VLM(structured) → self-check → arithmetic (spec §3–§4)."""
     emit(sink, document_id, PipelineStep.EXTRACT_OCR, StepStatus.START)
     ocr_pool = ThreadPoolExecutor(max_workers=1)
-    ocr_future = (
-        ocr_pool.submit(ocr.extract_fields, images, doc_type) if images else None
-    )
+    ocr_future = ocr_pool.submit(ocr.extract_fields, images, doc_type) if images else None
 
     # 1. regex
     emit(sink, document_id, PipelineStep.EXTRACT_REGEX, StepStatus.START)
     regex_doc, regex_note = _run_regex(data, mime_type, document_id, tenant_id, doc_type)
     evidences.append(_regex_evidence(document_id, regex_doc, regex_note))
     emit(
-        sink, document_id, PipelineStep.EXTRACT_REGEX,
-        StepStatus.OK if regex_doc else StepStatus.SKIP, detail=regex_note,
+        sink,
+        document_id,
+        PipelineStep.EXTRACT_REGEX,
+        StepStatus.OK if regex_doc else StepStatus.SKIP,
+        detail=regex_note,
     )
 
     # 2. Local GLM-OCR runs while CPU RapidOCR is working independently.
@@ -938,8 +1027,11 @@ def _run_math_pipeline(
             emit(sink, document_id, PipelineStep.VLM_SELFCHECK, StepStatus.START)
             requires_human_review = bool(grounding_issues) or not vlm_doc.coverage.coverage_complete
             emit(
-                sink, document_id, PipelineStep.VLM_SELFCHECK,
-                StepStatus.OK, detail=f"{len(grounding_issues)} grounding rejection(s)",
+                sink,
+                document_id,
+                PipelineStep.VLM_SELFCHECK,
+                StepStatus.OK,
+                detail=f"{len(grounding_issues)} grounding rejection(s)",
             )
         except Exception as err:
             logger.warning("GLM-OCR grounded extraction failed for %s: %s", document_id, err)
@@ -948,16 +1040,23 @@ def _run_math_pipeline(
         emit(sink, document_id, PipelineStep.EXTRACT_VLM, StepStatus.SKIP, detail="no VLM gateway")
 
     try:
-        ocr_fields = ocr_future.result() if ocr_future is not None else {
-            "available": False, "note": "no page images to OCR",
-        }
+        ocr_fields = (
+            ocr_future.result()
+            if ocr_future is not None
+            else {
+                "available": False,
+                "note": "no page images to OCR",
+            }
+        )
     except Exception as ocr_error:
         ocr_fields = {"available": False, "note": str(ocr_error)}
     finally:
         ocr_pool.shutdown(wait=True)
     evidences.append(_ocr_evidence(document_id, ocr_fields))
     emit(
-        sink, document_id, PipelineStep.EXTRACT_OCR,
+        sink,
+        document_id,
+        PipelineStep.EXTRACT_OCR,
         StepStatus.OK if ocr_fields.get("available") else StepStatus.SKIP,
         detail=str(ocr_fields.get("note", "ok")),
     )

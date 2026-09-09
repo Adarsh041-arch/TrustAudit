@@ -17,7 +17,7 @@ from audit_v2.server import DOCUMENTS_STORE, app
 def _put_document(document_id: str) -> None:
     DOCUMENTS_STORE[document_id] = ExtractedDocument(
         document_id=document_id,
-        tenant_id="tenant",
+        tenant_id="tenant_default",
         doc_type=DocumentType.INVOICE,
         header=DocumentHeader(document_id=document_id, doc_type=DocumentType.INVOICE),
         coverage=Coverage(pages_total=1, pages_examined=1, coverage_complete=True),

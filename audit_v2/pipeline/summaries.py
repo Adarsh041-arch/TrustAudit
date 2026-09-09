@@ -148,7 +148,7 @@ def deterministic_executive_summary(documents: list[dict[str, Any]]) -> str:
     incomplete = sum(
         1 for doc in documents
         if doc.get("audit_status", "NOT_AUDITED" if doc.get("document_status") != "READY" else None)
-        == "NOT_AUDITED"
+        in {"NOT_AUDITED", "INCOMPLETE", "UNSUPPORTED", "NEEDS_REVIEW"}
     )
     review = sum(1 for doc in documents if doc.get("human_review_recommended"))
     high_risk = sum(1 for doc in documents if doc.get("risk_level") == "High Risk")
@@ -180,7 +180,7 @@ def generate_executive_summary(documents: list[dict[str, Any]]) -> str:
                 "audit_status",
                 "NOT_AUDITED" if doc.get("document_status") != "READY" else None,
             )
-            == "NOT_AUDITED"
+            in {"NOT_AUDITED", "INCOMPLETE", "UNSUPPORTED", "NEEDS_REVIEW"}
         ),
         "high_risk": sum(1 for doc in documents if doc.get("risk_level") == "High Risk"),
         "review_required": sum(1 for doc in documents if doc.get("human_review_recommended")),

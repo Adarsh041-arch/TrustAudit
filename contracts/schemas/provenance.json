@@ -19,7 +19,10 @@
       "description": "ISO 4217 currency code, present only for monetary values"
     },
     "bbox": {
-      "type": ["array", "null"],
+      "type": [
+        "array",
+        "null"
+      ],
       "items": {
         "type": "number"
       },
@@ -36,8 +39,14 @@
       "type": "number",
       "minimum": 0,
       "maximum": 1,
-      "description": "Calibrated confidence score"
+      "description": "Extractor-reported confidence; not a calibrated audit probability"
     }
   },
-  "required": ["value", "raw", "bbox", "page", "confidence"]
+  "required": [
+    "value",
+    "raw",
+    "bbox",
+    "page",
+    "confidence"
+  ]
 }

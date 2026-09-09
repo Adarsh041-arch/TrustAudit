@@ -170,7 +170,8 @@ def test_unsupported_glm_candidate_marks_human_review(_one_page, make_gateway) -
     gateway = make_gateway(transcript, initial)
     result = run_document_pipeline(
         data=b"x", mime_type="application/pdf", document_id="doc2",
-        tenant_id="t", vlm_gateway=gateway, ocr=_FieldOcr("1000.00"),
+        tenant_id="t", doc_type=DocumentType.INVOICE,
+        vlm_gateway=gateway, ocr=_FieldOcr("1000.00"),
     )
 
     sources = [e.source for e in result.evidences]

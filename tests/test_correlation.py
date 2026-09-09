@@ -9,7 +9,7 @@ PHASES_V2 §4 Phase 7 acceptance criteria:
 from decimal import Decimal
 
 from audit_v2.domain.catalog_loader import load_catalog
-from audit_v2.domain.correlation import build_clusters, build_corpus_index
+from audit_v2.domain.correlation import build_clusters, build_corpus_index, duplicate_key
 from audit_v2.domain.models import (
     CheckContext,
     Coverage,
@@ -28,13 +28,13 @@ CATALOG = {c.check_id: c for c in load_catalog().checks}
 
 
 def pv(value: str, raw: str | None = None) -> ProvenancedValue:
-    return ProvenancedValue(value=value, raw=raw or value, page=1)
+    return ProvenancedValue(value=value, raw=raw or value, page=1, currency="INR")
 
 
 def line(n: int, desc: str, qty: str, price: str, total: str) -> LineItem:
     return LineItem(
         line_number=n, description=pv(desc), quantity=pv(qty),
-        unit_price=pv(price), line_total=pv(total), hsn_sac=pv("8471"),
+        unit_price=pv(price), line_total=pv(total), hsn_sac=pv("8471"), quantity_unit=pv("each"),
     )
 
 
@@ -52,6 +52,7 @@ def make_doc(
         document_id=doc_id,
         doc_type=doc_type,
         vendor_name=pv(vendor),
+        buyer_name=pv("Buyer One"),
         po_reference=pv(po_ref) if po_ref else None,
         grand_total=pv(grand_total) if grand_total else None,
         subtotal=pv(subtotal) if subtotal else None,
@@ -141,9 +142,8 @@ class TestBuildClusters:
                          inv_date="2026-06-15")
         anchor.header.invoice_date = pv("2026-06-10")
         clusters = build_clusters([anchor, stray])
-        assert len(clusters) == 1
-        methods = {link.document_id: link.method for link in clusters[0].links}
-        assert methods["INV-B"] == LinkMethod.VENDOR_AMOUNT_DATE
+        assert len(clusters) == 2
+        assert any("Unconfirmed transaction candidates" in str(c.review_reasons) for c in clusters)
 
     def test_fuzzy_match_on_vendor_and_descriptions(self):
         anchor = inv("INV-A", po_ref="PO-9",
@@ -151,9 +151,8 @@ class TestBuildClusters:
         stray = make_doc("DC-X", DocumentType.DELIVERY_CHALLAN,
                          lines=[line(1, "Widget B", "5", "0", "0")])
         clusters = build_clusters([anchor, stray])
-        assert len(clusters) == 1
-        methods = {link.document_id: link.method for link in clusters[0].links}
-        assert methods["DC-X"] == LinkMethod.FUZZY
+        assert len(clusters) == 2
+        assert any("Unconfirmed transaction candidates" in str(c.review_reasons) for c in clusters)
 
     def test_unrelated_documents_get_singleton_clusters(self):
         a = make_doc("INV-A", DocumentType.INVOICE, vendor="Vendor One")
@@ -194,13 +193,13 @@ class TestThreeWayMatch:
 
     def test_qty_skips_without_cluster(self):
         r = threeway.check_invoiced_vs_received(ctx(inv(), "CHK-XDOC-QTY-001"))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN
 
     def test_qty_skips_without_grn(self):
         i = inv()
         c = self._cluster([po(), i])
         r = threeway.check_invoiced_vs_received(ctx(i, "CHK-XDOC-QTY-001", cluster=c))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN
 
     def test_price_variance_detected(self):
         p = po(lines=[line(1, "Widget B", "10", "30.00", "300.00")])
@@ -222,14 +221,14 @@ class TestThreeWayMatch:
         i = inv(total="100000.00")
         c = self._cluster([po(), i])
         r = threeway.check_receipt_exists(ctx(i, "CHK-XDOC-RECEIPT-001", cluster=c))
-        assert r.status == FindingStatus.FAIL
+        assert r.status == FindingStatus.NOT_RUN
         assert r.requires_human_review
 
     def test_receipt_not_required_below_threshold(self):
         i = inv(total="10000.00")
         c = self._cluster([po(), i])
         r = threeway.check_receipt_exists(ctx(i, "CHK-XDOC-RECEIPT-001", cluster=c))
-        assert r.status == FindingStatus.PASS
+        assert r.status == FindingStatus.NOT_RUN
 
     def test_receipt_present_passes(self):
         i = inv(total="100000.00")
@@ -240,6 +239,7 @@ class TestThreeWayMatch:
     def test_overbilling_across_multiple_invoices(self):
         """Split-invoice over-billing: each invoice under PO value, sum over."""
         p = po(total="100000.00")
+        p.header.subtotal = pv("100000.00")
         i1 = inv("INV-1", subtotal="60000.00", total="70800.00")
         i2 = inv("INV-2", subtotal="60000.00", total="70800.00")
         c = self._cluster([p, i1, i2])
@@ -251,6 +251,7 @@ class TestThreeWayMatch:
 
     def test_cumulative_within_po_value_passes(self):
         p = po(total="100000.00")
+        p.header.subtotal = pv("100000.00")
         i1 = inv("INV-1", subtotal="40000.00", total="47200.00")
         i2 = inv("INV-2", subtotal="50000.00", total="59000.00")
         c = self._cluster([p, i1, i2])
@@ -263,7 +264,7 @@ class TestThreeWayMatch:
         clusters = build_clusters([i])
         r = threeway.check_cumulative_invoiced(
             ctx(i, "CHK-XDOC-CUMUL-001", cluster=clusters[0]))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN
 
 
 # ─── CHK-REF-QTY via cluster ──────────────────────────────────────────────────
@@ -289,7 +290,7 @@ class TestRefQtyChecks:
 
     def test_skips_without_cluster(self):
         r = reference_integrity.check_quantity_po(ctx(inv(), "CHK-REF-QTY-001"))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN
 
 
 # ─── Duplicate detection ──────────────────────────────────────────────────────
@@ -302,7 +303,7 @@ class TestDuplicateDetection:
         b2 = b2.model_copy(update={"document_id": "INV-1"})
         index = build_corpus_index([a, b2])
         # same vendor+docnum appears twice -> both ids in the bucket
-        index.by_vendor_docnum["acme corp||inv-1"] = ["INV-1", "INV-1-copy"]
+        index.by_vendor_docnum[duplicate_key(a)] = ["INV-1", "INV-1-copy"]
         r = duplicate.check_duplicate_document(
             ctx(a, "CHK-DUP-DOC-001", corpus_index=index))
         assert r.status == FindingStatus.FAIL
@@ -314,7 +315,7 @@ class TestDuplicateDetection:
         index = build_corpus_index([a, b])
         r = duplicate.check_duplicate_document(
             ctx(a, "CHK-DUP-DOC-001", corpus_index=index))
-        assert r.status == FindingStatus.FAIL
+        assert r.status == FindingStatus.NEEDS_REVIEW
         assert "INV-2" in r.actual
 
     def test_unique_document_passes(self):
@@ -341,7 +342,7 @@ class TestDuplicateDetection:
 
     def test_skips_without_index(self):
         r = duplicate.check_duplicate_document(ctx(inv(), "CHK-DUP-DOC-001"))
-        assert r.status == FindingStatus.SKIPPED
+        assert r.status == FindingStatus.NOT_RUN
 
 
 # ─── Deferred re-evaluation ───────────────────────────────────────────────────
@@ -359,7 +360,7 @@ class TestDeferredReEvaluation:
         # Price check could not run yet (no PO): PASS not asserted
         price_key = ("INV-1", "CHK-XDOC-PRICE-001")
         assert price_key not in first or first[price_key].status in (
-            FindingStatus.SKIPPED, FindingStatus.PASS,
+            FindingStatus.NOT_RUN, FindingStatus.PASS,
         )
 
         p = po(total="100000.00",

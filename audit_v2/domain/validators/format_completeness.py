@@ -89,7 +89,10 @@ def check_line_item_fields(ctx: CheckContext) -> CheckResult:
                 delta="N/A",
                 message=f"Line {line.line_number} missing quantity",
             )
-        if line.unit_price is None or not line.unit_price.value.strip():
+        requires_prices = doc.doc_type in {
+            DocumentType.INVOICE, DocumentType.PURCHASE_ORDER,
+        }
+        if requires_prices and (line.unit_price is None or not line.unit_price.value.strip()):
             return CheckResult.failed(
                 "CHK-FORMAT-MANDATORY-002",
                 expected="unit_price",
@@ -97,7 +100,7 @@ def check_line_item_fields(ctx: CheckContext) -> CheckResult:
                 delta="N/A",
                 message=f"Line {line.line_number} missing unit_price",
             )
-        if line.line_total is None or not line.line_total.value.strip():
+        if requires_prices and (line.line_total is None or not line.line_total.value.strip()):
             return CheckResult.failed(
                 "CHK-FORMAT-MANDATORY-002",
                 expected="line_total",

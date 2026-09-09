@@ -33,6 +33,7 @@ from audit_v2.orchestration.activities_temporal import (
     vlm_extract_activity,
     vlm_text_extract_activity,
 )
+from audit_v2.orchestration.product_workflow import ProductAuditWorkflow, audit_product_batch
 from audit_v2.orchestration.temporal_workflow import AuditDocumentWorkflow
 from audit_v2.persistence.db import apply_schema
 from audit_v2.persistence.db import connect as pg_connect
@@ -67,8 +68,9 @@ async def main() -> None:
     worker = Worker(
         client=client,
         task_queue=TASK_QUEUE,
-        workflows=[AuditDocumentWorkflow],
+        workflows=[AuditDocumentWorkflow, ProductAuditWorkflow],
         activities=[
+            audit_product_batch,
             fetch_document,
             validate_and_dedup,
             process_pdf_activity,

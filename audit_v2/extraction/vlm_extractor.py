@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any
 
-import fitz  # PyMuPDF
+import fitz  # type: ignore[import-untyped]  # PyMuPDF has no bundled stubs
 
 from audit_v2.domain.models import (
     Coverage,

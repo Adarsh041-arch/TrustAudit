@@ -106,12 +106,8 @@ class TestServerV2:
         assert "ml_prediction" in dr and dr["ml_prediction"]["mode"] == "Rule-based (V2)"
         assert dr["preview_base64"] != ""
         assert "lower" in body["prediction_interval"] and "upper" in body["prediction_interval"]
-        # Per-document interval is a band around the document's OWN score
-        # (n=1 -> ±12.5, clamped), NOT the batch-mean CI reused on every card.
-        pi = dr["prediction_interval"]
-        assert pi["lower"] == max(0.0, dr["score"] - 12.5)
-        assert pi["upper"] == min(100.0, dr["score"] + 12.5)
-        assert pi["lower"] <= dr["score"] <= pi["upper"]
+        assert dr["prediction_interval"] is None
+        assert dr["score_kind"] == "review_priority_heuristic"
         assert body["analytics"]["kpis"]["total_audited"] == 1
         assert len(body["analytics"]["charts"]["risk_distribution"]) == 1
 
@@ -128,34 +124,29 @@ def test_eval_endpoint_returns_eight_metric_grid():
 
 
 def test_report_endpoint_returns_docx_and_pdf():
-    payload = {
-        "documents": [{
-            "document_name": "inv.pdf", "document_type": "invoice", "passed": False,
-            "score": 60.0, "risk_level": "Medium Risk", "risk_explanation": "x",
-            "summary_text": "Validated document summary marker.",
-            "confidence_score": 60.0, "human_review_recommended": False,
-            "ml_prediction": {"prediction": "Partially Compliant", "probabilities": {"compliant": 15.0, "partially_compliant": 70.0, "non_compliant": 15.0}, "mode": "Rule-based (V2)"},
-            "failed_rules": [], "preview_base64": "", "page_count": 1,
-        }],
-        "findings": [],
-        "audit_title": "T",
-        "executive_summary": "Executive batch summary marker.",
-    }
     with TestClient(app) as client:
+        uploaded = client.post("/api/v2/audit/upload", files={
+            "files": ("invoice.pdf", MINIMAL_PDF, "application/pdf"),
+        }).json()["document_results"][0]
+        payload = {"documents": [{"document_id": uploaded["document_id"],
+                                   "passed": True, "summary_text": "FORGED CONTENT"}],
+                   "findings": [], "audit_title": "T", "executive_summary": "FORGED CONTENT"}
         docx = client.post("/api/v2/audit/report?format=docx", json=payload)
         pdf = client.post("/api/v2/audit/report?format=pdf", json=payload)
         bad = client.post("/api/v2/audit/report?format=xlsx", json=payload)
+        missing = client.post("/api/v2/audit/report", json={"documents": [{"document_id": "not-owned"}]})
     assert docx.status_code == 200 and docx.content[:4] == b"PK\x03\x04"
     assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
     assert bad.status_code == 400
+    assert missing.status_code == 404
     with zipfile.ZipFile(BytesIO(docx.content)) as archive:
         document_xml = archive.read("word/document.xml").decode("utf-8")
-    assert "Executive batch summary marker." in document_xml
-    assert "Validated document summary marker." in document_xml
+    assert "FORGED CONTENT" not in document_xml
+    assert "invoice.pdf" in document_xml
     with fitz.open(stream=pdf.content, filetype="pdf") as report_pdf:
         pdf_text = "\n".join(page.get_text() for page in report_pdf)
-    assert "Executive batch summary marker." in pdf_text
-    assert "Validated document summary marker." in pdf_text
+    assert "FORGED CONTENT" not in pdf_text
+    assert "invoice.pdf" in pdf_text
 
 
 # ─── Evidence-based pipeline (new_requirements.md §5–§8, plan §8) ─────────────

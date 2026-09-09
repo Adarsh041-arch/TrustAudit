@@ -1,4 +1,5 @@
 """Local Qwen2.5-VL gateway for Ollama's native chat API."""
+
 from __future__ import annotations
 
 import base64
@@ -74,22 +75,16 @@ class QwenVlGateway:
         timeout: int | None = None,
         max_retries: int | None = None,
     ) -> None:
-        self.base_url = (
-            base_url or os.getenv("QWEN_VL_BASE_URL", DEFAULT_BASE_URL)
-        ).rstrip("/")
-        self.model = model or os.getenv("QWEN_VL_MODEL", DEFAULT_MODEL)
+        self.base_url = (base_url or (os.getenv("QWEN_VL_BASE_URL") or DEFAULT_BASE_URL)).rstrip(
+            "/"
+        )
+        self.model = model or (os.getenv("QWEN_VL_MODEL") or DEFAULT_MODEL)
         self.timeout = timeout if timeout is not None else _env_int("QWEN_VL_TIMEOUT", 120)
         self.max_retries = (
-            max_retries
-            if max_retries is not None
-            else _env_int("QWEN_VL_MAX_RETRIES", 1)
+            max_retries if max_retries is not None else _env_int("QWEN_VL_MAX_RETRIES", 1)
         )
-        self.transcription_max_tokens = _env_int(
-            "QWEN_VL_TRANSCRIPTION_MAX_TOKENS", 4096
-        )
-        self.structured_max_tokens = _env_int(
-            "QWEN_VL_STRUCTURED_MAX_TOKENS", 1536
-        )
+        self.transcription_max_tokens = _env_int("QWEN_VL_TRANSCRIPTION_MAX_TOKENS", 4096)
+        self.structured_max_tokens = _env_int("QWEN_VL_STRUCTURED_MAX_TOKENS", 1536)
         self.context_length = _env_int("QWEN_VL_CONTEXT_LENGTH", 4096)
         self.network_call_count = 0
         self.last_cache_hit = False
@@ -151,13 +146,13 @@ class QwenVlGateway:
         payload: dict[str, Any] = {
             "model": self.model,
             "stream": False,
-            "messages": [{
-                "role": "user",
-                "content": prompt,
-                "images": [
-                    base64.b64encode(_prepare_image(images[0])).decode("ascii")
-                ],
-            }],
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                    "images": [base64.b64encode(_prepare_image(images[0])).decode("ascii")],
+                }
+            ],
             "options": {
                 "temperature": 0,
                 "top_p": 0.00001,
@@ -188,9 +183,7 @@ class QwenVlGateway:
                     if not content:
                         raise ValueError("Qwen returned empty content")
                     if data.get("done_reason") == "length":
-                        raise ValueError(
-                            "Qwen response was truncated by the context/output limit"
-                        )
+                        raise ValueError("Qwen response was truncated by the context/output limit")
                     return ModelResponse(
                         content=str(content),
                         model_version=str(data.get("model", self.model)),
@@ -214,32 +207,30 @@ class QwenVlGateway:
                     )
                     if attempt < self.max_retries:
                         time.sleep(min(2**attempt, 2))
-        raise RuntimeError(
-            f"Qwen failed after {self.max_retries + 1} attempt(s): {last_error}"
-        )
+        raise RuntimeError(f"Qwen failed after {self.max_retries + 1} attempt(s): {last_error}")
 
     def transcribe(self, image: bytes, tenant_id: str) -> ModelResponse:
         ttl = _env_int("QWEN_VL_CACHE_TTL_SECONDS", 3600)
         capacity = max(1, _env_int("QWEN_VL_CACHE_MAX_PAGES", 256))
-        prompt_version = os.getenv(
-            "QWEN_VL_TRANSCRIPT_PROMPT_VERSION", "exact-transcription-v1"
-        )
-        key = hashlib.sha256(b"\0".join((
-            tenant_id.encode(),
-            self.base_url.encode(),
-            self.model.encode(),
-            prompt_version.encode(),
-            image,
-        ))).hexdigest()
+        prompt_version = os.getenv("QWEN_VL_TRANSCRIPT_PROMPT_VERSION", "exact-transcription-v1")
+        key = hashlib.sha256(
+            b"\0".join(
+                (
+                    tenant_id.encode(),
+                    self.base_url.encode(),
+                    self.model.encode(),
+                    prompt_version.encode(),
+                    image,
+                )
+            )
+        ).hexdigest()
         now = time.monotonic()
         with _CACHE_LOCK:
             cached = _TRANSCRIPT_CACHE.get(key)
             if cached and now - cached[0] <= ttl:
                 _TRANSCRIPT_CACHE.move_to_end(key)
                 self.last_cache_hit = True
-                return ModelResponse(
-                    content=cached[1], model_version=cached[2], latency_ms=0.0
-                )
+                return ModelResponse(content=cached[1], model_version=cached[2], latency_ms=0.0)
             if cached:
                 _TRANSCRIPT_CACHE.pop(key, None)
 

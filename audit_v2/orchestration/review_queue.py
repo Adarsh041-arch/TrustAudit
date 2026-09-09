@@ -31,6 +31,10 @@ class ReviewItem:
     tenant_id: str
     created_at: str
     priority_score: float
+    version: int = 0
+    history: list[dict[str, Any]] | None = None
+    rule_configured_by: str | None = None
+    evidence_corrected_by: str | None = None
     status: str = "PENDING"  # PENDING | CONFIRMED | REJECTED | ESCALATED
     reviewer_id: str | None = None
     action: ReviewAction | None = None
@@ -64,7 +68,7 @@ class ReviewQueue:
 
     @property
     def pending_items(self) -> list[ReviewItem]:
-        items = [item for item in self._items.values() if item.status == "PENDING"]
+        items = [item for item in self._items.values() if item.status in {"PENDING", "ESCALATED"}]
         return sorted(items, key=lambda x: x.priority_score, reverse=True)
 
     @property
@@ -78,6 +82,9 @@ class ReviewQueue:
         tenant_id: str,
         total_value: float = 0.0,
     ) -> ReviewItem:
+        existing = self._items.get(f"rev_{finding.finding_id}")
+        if existing is not None:
+            return existing
         ts = datetime.now(UTC).isoformat()
         score = compute_priority_score(finding.severity, total_value=total_value)
         item = ReviewItem(
@@ -97,11 +104,28 @@ class ReviewQueue:
         reviewer_id: str,
         action: ReviewAction,
         comments: str | None = None,
+        expected_version: int | None = None,
     ) -> ReviewItem:
         item = self._items.get(item_id)
         if item is None:
             raise ValueError(f"Review item {item_id} not found")
 
+        if expected_version is not None and item.version != expected_version:
+            raise ValueError("Review version conflict; reload before reviewing")
+        if item.status == "SUPERSEDED":
+            raise ValueError("This finding was superseded; review the current finding")
+        if item.rule_configured_by == reviewer_id and action != ReviewAction.ANNOTATE:
+            raise ValueError("Rule author cannot approve their own finding")
+        if item.evidence_corrected_by == reviewer_id and action != ReviewAction.ANNOTATE:
+            raise ValueError("Evidence corrector cannot approve their own correction")
+        if item.status in {"CONFIRMED", "REJECTED"} and action != ReviewAction.ANNOTATE:
+            raise ValueError("Review is closed; submit corrected evidence for a new audit")
+        item.version += 1
+        if item.history is None:
+            item.history = []
+        item.history.append({"actor_id": reviewer_id, "action": action.value,
+                             "comments": comments, "version": item.version,
+                             "timestamp": datetime.now(UTC).isoformat()})
         item.reviewer_id = reviewer_id
         item.action = action
         item.comments = comments

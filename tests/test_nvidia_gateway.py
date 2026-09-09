@@ -44,6 +44,43 @@ class TestNvidiaGateway:
         assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
     @patch("audit_v2.gateway.nvidia_gateway.requests.post")
+    def test_accepts_complete_json_from_reasoning_content(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.ok = True
+        mock_resp.json.return_value = {
+            "choices": [{"message": {
+                "content": None,
+                "reasoning_content": '{"supported": true}',
+            }}],
+        }
+        mock_post.return_value = mock_resp
+
+        gw = NvidiaGateway(api_key="test-key", max_retries=2)
+        result = gw.extract(images=[], prompt="Cross-check", tenant_id="t1")
+
+        assert result.content == '{"supported": true}'
+        assert mock_post.call_count == 1
+
+    @patch("audit_v2.gateway.nvidia_gateway.requests.post")
+    def test_does_not_retry_reasoning_without_final_content(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.ok = True
+        mock_resp.json.return_value = {
+            "choices": [{"message": {
+                "content": None,
+                "reasoning_content": "thinking only",
+            }}],
+        }
+        mock_post.return_value = mock_resp
+
+        gw = NvidiaGateway(api_key="test-key", max_retries=2)
+        with pytest.raises(RuntimeError, match="no final content"):
+            gw.extract(images=[], prompt="Cross-check", tenant_id="t1")
+        assert mock_post.call_count == 1
+
+    @patch("audit_v2.gateway.nvidia_gateway.requests.post")
     def test_pii_redaction_in_prompt(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200

@@ -4,6 +4,7 @@ Multimodal model access layer connecting to NVIDIA's OpenAI-compatible API
 (https://integrate.api.nvidia.com/v1). Automatically redacts PII pre-call
 (Phase 2 governance) and retries on transient errors.
 """
+
 from __future__ import annotations
 
 import base64
@@ -67,8 +68,8 @@ class NvidiaGateway:
         max_images: int | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("NVIDIA_API_KEY")
-        self.model = model or os.getenv("NVIDIA_MODEL", DEFAULT_MODEL)
-        base = base_url or os.getenv("NVIDIA_BASE_URL", DEFAULT_BASE_URL)
+        self.model = model or (os.getenv("NVIDIA_MODEL") or DEFAULT_MODEL)
+        base = base_url or (os.getenv("NVIDIA_BASE_URL") or DEFAULT_BASE_URL)
         self.base_url = base.rstrip("/")
         # Interactive-friendly and env-tunable. The upload path falls back to
         # regex on VLM failure, so a bounded budget (default ~3x60s) beats the
@@ -116,9 +117,7 @@ class NvidiaGateway:
             Parsed content string and token usage metadata.
         """
         if not self.api_key:
-            raise ValueError(
-                "NVIDIA_API_KEY environment variable or api_key parameter is required"
-            )
+            raise ValueError("NVIDIA_API_KEY environment variable or api_key parameter is required")
 
         # Cap page images to what the model accepts. llama-3.2 vision rejects
         # multi-image prompts (HTTP 400); rather than fail the whole document,
@@ -128,8 +127,12 @@ class NvidiaGateway:
             logger.warning(
                 "Document has %d page images but model %s accepts %d; sending the "
                 "first %d for tenant %s. Remaining %d page(s) not seen by the VLM.",
-                len(images), self.model, self.max_images, self.max_images,
-                tenant_id, len(images) - self.max_images,
+                len(images),
+                self.model,
+                self.max_images,
+                self.max_images,
+                tenant_id,
+                len(images) - self.max_images,
             )
             images = images[: self.max_images]
 
@@ -137,17 +140,17 @@ class NvidiaGateway:
         clean_prompt = redact(prompt, pii_classes=pii_classes)
 
         # Base64 encode images for data URL content parts
-        content_parts: list[dict[str, Any]] = [
-            {"type": "text", "text": clean_prompt}
-        ]
+        content_parts: list[dict[str, Any]] = [{"type": "text", "text": clean_prompt}]
         for img_bytes in images:
             b64_str = base64.b64encode(img_bytes).decode("utf-8")
-            content_parts.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"},
-            })
+            content_parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{b64_str}"},
+                }
+            )
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.model,
             "messages": [{"role": "user", "content": content_parts}],
             "max_tokens": 4096,
@@ -174,18 +177,28 @@ class NvidiaGateway:
             attempt += 1
             logger.info(
                 "NvidiaGateway call attempt %d/%d for tenant %s (%d page images, model=%s)",
-                attempt, max_attempts, tenant_id, len(images), self.model,
+                attempt,
+                max_attempts,
+                tenant_id,
+                len(images),
+                self.model,
             )
             try:
                 resp = requests.post(
-                    url, headers=headers, json=payload, timeout=self.timeout,
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout,
                 )
             except (requests.ConnectionError, requests.Timeout) as err:
                 # Network hiccup / read timeout — transient, retry.
                 last_error = err
                 logger.warning(
                     "NvidiaGateway attempt %d/%d network error for tenant %s: %s",
-                    attempt, max_attempts, tenant_id, err,
+                    attempt,
+                    max_attempts,
+                    tenant_id,
+                    err,
                 )
                 self._backoff(attempt, max_attempts, None)
                 continue
@@ -199,16 +212,19 @@ class NvidiaGateway:
 
             # Retry on worker saturation / transient server errors.
             if resp.status_code in _RETRYABLE_STATUS:
-                last_error = requests.HTTPError(
-                    f"HTTP {resp.status_code}: {resp.text[:300]}"
-                )
+                last_error = requests.HTTPError(f"HTTP {resp.status_code}: {resp.text[:300]}")
                 logger.warning(
                     "NvidiaGateway attempt %d/%d transient HTTP %d for tenant %s: %s",
-                    attempt, max_attempts, resp.status_code, tenant_id, resp.text[:200],
+                    attempt,
+                    max_attempts,
+                    resp.status_code,
+                    tenant_id,
+                    resp.text[:200],
                 )
                 # On final primary retry attempt, swap to fallback model pool if available
                 default_fallback = (
-                    "meta/llama-3.2-90b-vision-instruct" if images
+                    "meta/llama-3.2-90b-vision-instruct"
+                    if images
                     else "meta/llama-3.3-70b-instruct"
                 )
                 fallback = os.getenv("NVIDIA_FALLBACK_MODEL", default_fallback)
@@ -216,7 +232,8 @@ class NvidiaGateway:
                     logger.warning(
                         "Primary model %s pool exhausted/unhealthy; "
                         "retrying once with fallback model %s",
-                        self.model, fallback,
+                        self.model,
+                        fallback,
                     )
                     payload["model"] = fallback
                     max_attempts += 1
@@ -238,7 +255,22 @@ class NvidiaGateway:
                     raise ValueError(f"No choices in response: {str(data)[:300]}")
                 content = choices[0].get("message", {}).get("content")
                 if not content:
-                    raise ValueError(f"Empty content in response: {str(data)[:300]}")
+                    # A few reasoning models put a final answer in
+                    # reasoning_content. Accept that field only when it is a
+                    # complete JSON value; chain-of-thought prose is never
+                    # exposed to downstream parsers.
+                    reasoning = choices[0].get("message", {}).get("reasoning_content")
+                    if reasoning:
+                        stripped = reasoning.strip()
+                        try:
+                            json.loads(stripped)
+                        except json.JSONDecodeError as err:
+                            raise RuntimeError(
+                                "NVIDIA model returned reasoning but no final content"
+                            ) from err
+                        content = stripped
+                    else:
+                        raise RuntimeError("NVIDIA model returned no final content")
                 usage = data.get("usage", {})
                 return ModelResponse(
                     content=content,
@@ -251,7 +283,10 @@ class NvidiaGateway:
                 last_error = err
                 logger.warning(
                     "NvidiaGateway attempt %d/%d bad response for tenant %s: %s",
-                    attempt, max_attempts, tenant_id, err,
+                    attempt,
+                    max_attempts,
+                    tenant_id,
+                    err,
                 )
                 self._backoff(attempt, max_attempts, None)
                 continue
@@ -265,7 +300,7 @@ class NvidiaGateway:
         """Sleep between retries (capped exponential); no-op after the last attempt."""
         if attempt >= max_attempts:
             return
-        delay = float(min(2 ** attempt, 30))
+        delay = float(min(2**attempt, 30))
         if retry_after:
             with contextlib.suppress(TypeError, ValueError):
                 delay = float(retry_after)
