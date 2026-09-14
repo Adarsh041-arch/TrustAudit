@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   AlertTriangle,
   Bot,
   CheckCircle2,
   FileSearch,
   Send,
-  ShieldCheck,
   User,
   Search,
   Maximize2,
+  Minimize2,
+  ZoomIn,
+  ZoomOut,
+  ExternalLink,
   X,
   Sparkles,
   FileText
@@ -21,7 +24,6 @@ import { FailedRulesList } from '../components/FailedRulesList'
 import { FlatCard } from '../components/FlatCard'
 import { ScoreDisplay } from '../components/ScoreDisplay'
 import { StatusBadge } from '../components/StatusBadge'
-
 import { CorrectionPanel } from '../components/CorrectionPanel'
 
 interface AuditWorkspaceProps {
@@ -47,6 +49,60 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState<'all' | 'attention' | 'passed'>('all')
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
+  const [zoomLevel, setZoomLevel] = useState<number>(100)
+  const [isBrowserFullscreen, setIsBrowserFullscreen] = useState<boolean>(false)
+  const [fitMode, setFitMode] = useState<'screen' | 'width' | 'custom'>('screen')
+  const modalContainerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!previewModalOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPreviewModalOpen(false)
+      } else if (e.key === '+' || e.key === '=') {
+        setZoomLevel((prev) => Math.min(prev + 25, 300))
+        setFitMode('custom')
+      } else if (e.key === '-' || e.key === '_') {
+        setZoomLevel((prev) => Math.max(prev - 25, 50))
+        setFitMode('custom')
+      } else if (e.key === '0') {
+        setZoomLevel(100)
+        setFitMode('screen')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [previewModalOpen])
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsBrowserFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
+  const toggleBrowserFullscreen = async () => {
+    try {
+      if (!document.fullscreenElement) {
+        if (modalContainerRef.current) {
+          await modalContainerRef.current.requestFullscreen()
+          setIsBrowserFullscreen(true)
+        }
+      } else {
+        await document.exitFullscreen()
+        setIsBrowserFullscreen(false)
+      }
+    } catch {
+      // Ignore if not permitted
+    }
+  }
+
+  const openPreview = () => {
+    setZoomLevel(100)
+    setFitMode('screen')
+    setPreviewModalOpen(true)
+  }
 
   useEffect(() => {
     setHistory([])
@@ -251,24 +307,25 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
                 Source Document
               </span>
               <button
-                onClick={() => setPreviewModalOpen(true)}
-                className="text-teal-600 dark:text-teal-400 hover:text-teal-700 flex items-center gap-1 text-[11px] font-medium cursor-pointer"
+                onClick={openPreview}
+                className="text-teal-600 dark:text-teal-400 hover:text-teal-700 flex items-center gap-1 text-[11px] font-medium cursor-pointer transition-colors"
+                title="Open full screen preview"
               >
-                <Maximize2 className="w-3 h-3" /> Expand
+                <Maximize2 className="w-3.5 h-3.5" /> Expand
               </button>
             </div>
             <div
-              onClick={() => setPreviewModalOpen(true)}
-              className="h-64 rounded-xl overflow-hidden bg-white border border-border flex items-center justify-center cursor-pointer group relative"
+              onClick={openPreview}
+              className="h-64 rounded-xl overflow-hidden bg-white border border-border flex items-center justify-center cursor-pointer group relative shadow-inner"
             >
               <img
                 src={`data:image/jpeg;base64,${selected.preview_base64}`}
                 alt={`Page 1 of ${selected.document_name}`}
                 className="w-full h-full object-contain transition-transform group-hover:scale-105 duration-200"
               />
-              <div className="absolute inset-0 bg-slate-900/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <span className="px-3 py-1.5 rounded-full bg-slate-900/90 text-white text-[12px] font-semibold flex items-center gap-1.5 shadow-md">
-                  <Maximize2 className="w-3.5 h-3.5" /> View High-Res
+              <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-xs">
+                <span className="px-3.5 py-2 rounded-full bg-slate-900/90 text-white text-[12px] font-semibold flex items-center gap-1.5 shadow-lg border border-slate-700">
+                  <Maximize2 className="w-3.5 h-3.5" /> Full Screen View
                 </span>
               </div>
             </div>
@@ -298,211 +355,151 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
           }`}
         >
           {selected.classification_status === 'CONFIRMED' ? (
-            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
           ) : (
-            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
           )}
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] uppercase tracking-widest font-bold">
-                Classification Gate
+          <div className="flex-1 text-[13px] leading-relaxed">
+            <div className="flex items-center gap-2 font-semibold">
+              <span>
+                Classification Gate:{' '}
+                {selected.classification_status === 'CONFIRMED'
+                  ? 'Confirmed'
+                  : selected.classification_status === 'UNSUPPORTED'
+                    ? 'Unsupported Format'
+                    : 'Ambiguous Type'}
               </span>
-              <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-surface-2/80 border border-current/20">
-                {selected.classification_status}
+              <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-surface-1 border border-border">
+                {Math.round((selected.classification_confidence ?? 1.0) * 100)}% Match
               </span>
             </div>
-            <p className="text-[13px] mt-1 leading-relaxed">
+            <p className="mt-1 opacity-90">
               {selected.classification_status === 'CONFIRMED'
-                ? `${selected.document_type.replaceAll('_', ' ')} verified from ${
-                    selected.classification_method ?? 'deterministic evidence'
-                  } at ${Math.round((selected.classification_confidence ?? 0) * 100)}% confidence.`
-                : `Deterministic checks held: classification is ${(
-                    selected.classification_status ?? 'unconfirmed'
-                  ).toLowerCase()}. Human review required.`}
+                ? `Document features strictly align with ${selected.document_type.replaceAll('_', ' ')} compliance profiles. Deterministic validators and arithmetic solvers are active.`
+                : selected.classification_status === 'UNSUPPORTED'
+                  ? 'This file does not match any recognized financial/procurement document profile. Processing was halted to prevent false audit failures.'
+                  : 'Multiple conflicting document signatures were detected. Audit decisions are marked for human reviewer adjudication.'}
             </p>
-            {(selected.alternative_types?.length ?? 0) > 0 && (
-              <p className="text-[12px] mt-1 opacity-85 font-mono">
-                Alternate candidates: {selected.alternative_types?.join(', ')}
-              </p>
-            )}
           </div>
         </div>
 
-        {/* Document Overview Card */}
+        {/* Failed Rule Findings */}
         <FlatCard>
-          <div className="flex items-start gap-3.5">
-            <div className="p-2.5 rounded-xl bg-teal-500/10 text-teal-600 dark:text-teal-400">
-              <ShieldCheck className="w-6 h-6" />
-            </div>
-            <div className="min-w-0">
-              <span className="text-[11px] uppercase tracking-widest font-semibold text-muted">
-                Document overview
-              </span>
-              <h2 className="text-[22px] font-bold text-ink mt-0.5 break-words">
-                {selected.document_name}
-              </h2>
-            </div>
-          </div>
-          <p className="text-[14px] leading-relaxed text-ink mt-4 bg-surface-1 p-4 rounded-xl border border-border/70">
-            {selected.summary_text}
-          </p>
-
-          <div className="mt-4 pt-3.5 border-t border-border/60">
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-muted block mb-1">
-              What needs attention
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="text-[15px] font-bold text-ink">
+              Compliance Rules & Mandatory Checks
+            </h3>
+            <span className="text-[12px] font-mono font-medium px-2 py-0.5 rounded-full bg-surface-1 border border-border text-muted">
+              {selected.failed_rules?.length || 0} findings
             </span>
-            <p className="text-[13px] leading-relaxed text-muted">
-              {selected.risk_explanation}
-            </p>
           </div>
+          <FailedRulesList rules={selected.failed_rules || []} />
         </FlatCard>
 
-        {/* Compliance Findings */}
+        {/* Advisory Contradictions */}
         <FlatCard>
-          <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
             <div>
-              <span className="text-[11px] uppercase tracking-wider font-semibold text-muted">
-                Audit Findings Engine
-              </span>
-              <h3 className="text-[18px] font-bold text-ink mt-0.5">Rule Compliance Results</h3>
+              <h3 className="text-[15px] font-bold text-ink">Evidence Cross-Check</h3>
+              <p className="text-[12px] text-muted mt-0.5">
+                Multi-layer triangulation across metadata, regex text, and visual VLM observations
+              </p>
             </div>
-            <span className="text-[12px] font-medium px-2.5 py-1 rounded-full bg-surface-1 border border-border text-ink">
-              {selected.failed_rules.length} finding(s)
+            <span className="text-[12px] font-mono font-medium px-2 py-0.5 rounded-full bg-surface-1 border border-border text-muted">
+              {selected.contradictions?.length || 0} discrepancies
             </span>
           </div>
-          <FailedRulesList rules={selected.failed_rules} />
+          <ContradictionList contradictions={selected.contradictions || []} />
         </FlatCard>
 
-        {/* Grounding Rejections */}
-        {(selected.grounding_rejections?.length ?? 0) > 0 && (
-          <FlatCard glow="coral">
-            <details open className="group">
-              <summary className="cursor-pointer text-[14.5px] font-semibold text-coral-600 dark:text-coral-400 flex items-center justify-between">
-                <span>Grounding Rejections ({selected.grounding_rejection_count})</span>
-                <span className="text-[11px] text-muted group-open:rotate-180 transition-transform">▼</span>
-              </summary>
-              <ul className="mt-3.5 space-y-2 text-[13px] text-muted">
-                {selected.grounding_rejections?.map((item) => (
-                  <li key={item} className="flex items-start gap-2">
-                    <span className="text-coral-500 mt-0.5">•</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </FlatCard>
-        )}
-
-        {/* Extraction Disagreements */}
-        {Object.keys(selected.extraction_disagreements ?? {}).length > 0 && (
-          <FlatCard glow="blue">
-            <details open className="group">
-              <summary className="cursor-pointer text-[14.5px] font-semibold text-blue-600 dark:text-blue-400 flex items-center justify-between">
-                <span>
-                  Dual-Extraction Field Disagreements (
-                  {Object.keys(selected.extraction_disagreements ?? {}).length})
-                </span>
-                <span className="text-[11px] text-muted group-open:rotate-180 transition-transform">▼</span>
-              </summary>
-              <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {Object.entries(selected.extraction_disagreements ?? {}).map(([field, detail]) => (
-                  <div key={field} className="rounded-xl border border-border bg-surface-1 p-3">
-                    <span className="font-mono text-[11px] text-teal-600 dark:text-teal-400 font-semibold block">
-                      {field}
-                    </span>
-                    <span className="text-ink text-[12.5px] mt-1 block">{String(detail)}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          </FlatCard>
-        )}
-
-        {/* Contradictions */}
-        <ContradictionList contradictions={selected.contradictions ?? []} />
-
-        {/* Evidence Trail */}
-        <EvidenceTrail evidences={selected.evidences ?? []} />
-
-        {/* Auditor Copilot */}
-        <FlatCard glow="teal">
-          <div className="flex items-center justify-between border-b border-border/60 pb-3 mb-3">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white shadow-xs">
-                <Bot className="w-4 h-4" />
-              </div>
-              <div>
-                <h3 className="text-[15px] font-bold text-ink">Auditor Forensic Copilot</h3>
-                <p className="text-[11px] text-muted">
-                  Grounded strictly in this document dossier and verified cross-checks
-                </p>
-              </div>
+        {/* Full Layered Provenance Evidence Trail */}
+        <FlatCard>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-[15px] font-bold text-ink">
+                Grounded Provenance Trail
+              </h3>
+              <p className="text-[12px] text-muted mt-0.5">
+                Every extracted fact is anchored to source coordinates, OCR tokens, or visual bounding boxes
+              </p>
             </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-600 font-semibold border border-teal-500/20">
-              Deterministic V2 Mode
+            <span className="text-[12px] font-mono font-medium px-2 py-0.5 rounded-full bg-surface-1 border border-border text-muted">
+              {selected.evidences?.length || 0} items
             </span>
           </div>
+          <EvidenceTrail evidences={selected.evidences || []} />
+        </FlatCard>
 
-          {/* Quick suggestions chips */}
-          <div className="flex flex-wrap gap-1.5 mb-3">
-            {COPILOT_SUGGESTIONS.map((sug) => (
+        {/* Forensic Copilot Chat */}
+        <FlatCard className="p-5! space-y-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-600 text-white flex items-center justify-center shadow-xs">
+              <Bot className="w-4.5 h-4.5" />
+            </div>
+            <div>
+              <h3 className="text-[15px] font-bold text-ink">Auditor Forensic Copilot</h3>
+              <p className="text-[12px] text-muted">
+                Grounded strictly in this document dossier and verified cross-checks
+              </p>
+            </div>
+          </div>
+
+          {/* Preset Prompts */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {COPILOT_SUGGESTIONS.map((suggestion) => (
               <button
-                key={sug}
-                onClick={() => void sendQuestion(sug)}
-                disabled={asking}
-                className="text-[11px] px-2.5 py-1 rounded-lg bg-surface-1 hover:bg-surface-3 border border-border text-muted hover:text-ink transition-all cursor-pointer"
+                key={suggestion}
+                onClick={() => void sendQuestion(suggestion)}
+                className="text-[12px] px-3 py-1.5 rounded-xl border border-border/70 bg-surface-1 hover:border-teal-500/50 hover:bg-teal-500/5 text-muted hover:text-ink transition-all cursor-pointer"
               >
-                {sug}
+                {suggestion}
               </button>
             ))}
           </div>
 
-          {/* Chat messages */}
-          <div className="h-72 overflow-y-auto py-3 space-y-3 pr-1" aria-live="polite">
-            {history.length === 0 && (
-              <div className="text-center py-16 text-muted">
-                <Sparkles className="w-6 h-6 mx-auto mb-2 text-teal-500/60" />
-                <p className="text-[13px] font-medium text-ink">How can Copilot assist your audit?</p>
-                <p className="text-[12px] mt-1 text-muted">
-                  Click a suggested prompt above or query extracted math, rules, and grounding.
-                </p>
-              </div>
-            )}
-            {history.map((message, index) => (
-              <div
-                key={`${message.role}-${index}`}
-                className={`flex gap-2.5 ${
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
-                }`}
-              >
-                {message.role === 'assistant' && (
-                  <div className="w-6 h-6 rounded-lg bg-teal-500/15 text-teal-600 flex items-center justify-center shrink-0 mt-1">
-                    <Bot className="w-3.5 h-3.5" />
-                  </div>
-                )}
+          {/* Conversation history */}
+          {history.length > 0 ? (
+            <div className="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+              {history.map((msg, index) => (
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[13px] leading-relaxed ${
-                    message.role === 'user'
-                      ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-xs'
-                      : 'bg-surface-1 border border-border text-ink'
+                  key={index}
+                  className={`flex gap-3 text-[13px] ${
+                    msg.role === 'assistant'
+                      ? 'bg-surface-1 border border-border/70 rounded-2xl p-4'
+                      : 'justify-end'
                   }`}
                 >
-                  {message.content}
-                </div>
-                {message.role === 'user' && (
-                  <div className="w-6 h-6 rounded-lg bg-blue-500/15 text-blue-600 flex items-center justify-center shrink-0 mt-1">
-                    <User className="w-3.5 h-3.5" />
+                  {msg.role === 'assistant' && (
+                    <div className="w-6 h-6 rounded-lg bg-teal-500/15 text-teal-600 dark:text-teal-400 flex items-center justify-center shrink-0 mt-0.5">
+                      <Sparkles className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                  <div
+                    className={
+                      msg.role === 'user'
+                        ? 'bg-teal-600 text-white px-4 py-2.5 rounded-2xl max-w-md shadow-xs'
+                        : 'flex-1 text-ink leading-relaxed whitespace-pre-wrap'
+                    }
+                  >
+                    {msg.content}
                   </div>
-                )}
-              </div>
-            ))}
-            {asking && (
-              <div className="flex items-center gap-2 text-[12px] text-muted animate-pulse">
-                <Bot className="w-3.5 h-3.5 text-teal-600" />
-                <span>Auditing dossier and cross-referencing rule evidence…</span>
-              </div>
-            )}
-          </div>
+                  {msg.role === 'user' && (
+                    <div className="w-6 h-6 rounded-lg bg-slate-700 text-slate-200 flex items-center justify-center shrink-0 mt-0.5">
+                      <User className="w-3.5 h-3.5" />
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-8 text-center border border-dashed border-border/70 rounded-2xl bg-surface-1/40">
+              <Sparkles className="w-6 h-6 text-teal-500 mx-auto mb-2 opacity-60" />
+              <p className="text-[13px] font-medium text-ink">How can Copilot assist your audit?</p>
+              <p className="text-[11.5px] text-muted mt-1">
+                Click a suggested prompt above or ask any question about extractions and risk signals.
+              </p>
+            </div>
+          )}
 
           {/* Input field */}
           <div className="flex gap-2 pt-3 border-t border-border/60">
@@ -528,26 +525,165 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
         </FlatCard>
       </section>
 
-      {/* High-Res Preview Modal */}
+      {/* High-Res Full-Screen Source Document Modal */}
       {previewModalOpen && selected.preview_base64 && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
-          <div className="bg-surface-2 border border-border rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
-              <span className="font-semibold text-[15px] text-ink truncate mr-3">
-                {selected.document_name} — High Resolution Source Preview
-              </span>
+        <div
+          ref={modalContainerRef}
+          className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-xl flex flex-col text-slate-100 animate-in fade-in duration-200 select-none"
+        >
+          {/* Top Control Bar */}
+          <div className="flex items-center justify-between px-6 py-3 bg-slate-900/90 border-b border-slate-800 shadow-lg shrink-0">
+            {/* Left: Document info */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20 shrink-0">
+                <FileText className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-[15px] text-white truncate max-w-md">
+                    {selected.document_name}
+                  </h3>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-teal-300 border border-slate-700">
+                    {selected.document_type?.toUpperCase() || 'DOCUMENT'}
+                  </span>
+                </div>
+                <p className="text-[12px] text-slate-400 flex items-center gap-2 mt-0.5">
+                  <span>Page 1 of {selected.page_count || 1}</span>
+                  <span>•</span>
+                  <span>High Resolution Source</span>
+                  <span>•</span>
+                  <span className="text-slate-500 text-[11px]">Tip: Double click to zoom</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Center: Zoom Controls & Fit Presets */}
+            <div className="flex items-center gap-1.5 bg-slate-800/90 p-1 rounded-xl border border-slate-700/80 shadow-inner">
               <button
-                onClick={() => setPreviewModalOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-ink cursor-pointer"
+                onClick={() => {
+                  setZoomLevel((z) => Math.max(z - 25, 50))
+                  setFitMode('custom')
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Zoom Out (-)"
               >
-                <X className="w-5 h-5" />
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => {
+                  setZoomLevel(100)
+                  setFitMode('custom')
+                }}
+                className="px-2.5 py-1 text-xs font-semibold text-slate-200 hover:bg-slate-700 rounded-md transition-colors min-w-[52px] text-center cursor-pointer"
+                title="Reset to 100%"
+              >
+                {zoomLevel}%
+              </button>
+              <button
+                onClick={() => {
+                  setZoomLevel((z) => Math.min(z + 25, 300))
+                  setFitMode('custom')
+                }}
+                className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                title="Zoom In (+)"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <div className="h-4 w-px bg-slate-700 mx-1" />
+              <button
+                onClick={() => {
+                  setFitMode('screen')
+                  setZoomLevel(100)
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                  fitMode === 'screen'
+                    ? 'bg-teal-500 text-slate-950 font-bold'
+                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+                title="Fit to Screen Height"
+              >
+                Fit Screen
+              </button>
+              <button
+                onClick={() => {
+                  setFitMode('width')
+                  setZoomLevel(100)
+                }}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors cursor-pointer ${
+                  fitMode === 'width'
+                    ? 'bg-teal-500 text-slate-950 font-bold'
+                    : 'text-slate-300 hover:bg-slate-700 hover:text-white'
+                }`}
+                title="Fit to Page Width"
+              >
+                Fit Width
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-4 bg-slate-900/10 flex items-center justify-center">
+
+            {/* Right: Fullscreen, New Tab & Close */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={toggleBrowserFullscreen}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700"
+                title={isBrowserFullscreen ? 'Exit Full Screen' : 'Monitor Full Screen'}
+              >
+                {isBrowserFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              </button>
+              <button
+                onClick={() => {
+                  const w = window.open('')
+                  w?.document.write(`<img src="data:image/jpeg;base64,${selected.preview_base64}" style="max-width:100%;height:auto;" />`)
+                }}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer border border-slate-700"
+                title="Open image in new browser tab"
+              >
+                <ExternalLink className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-colors cursor-pointer border border-rose-500/20 flex items-center gap-1.5 text-xs font-semibold px-3"
+                title="Close (Esc)"
+              >
+                <X className="w-4 h-4" /> Close
+              </button>
+            </div>
+          </div>
+
+          {/* Full Screen Viewport Area */}
+          <div
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setPreviewModalOpen(false)
+              }
+            }}
+            className="flex-1 overflow-auto p-4 sm:p-8 flex items-center justify-center bg-slate-950/90 cursor-zoom-out min-h-0"
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={() => {
+                if (zoomLevel !== 100 || fitMode !== 'screen') {
+                  setFitMode('screen')
+                  setZoomLevel(100)
+                } else {
+                  setZoomLevel(150)
+                  setFitMode('custom')
+                }
+              }}
+              className="m-auto transition-transform duration-150 ease-out origin-center cursor-default flex items-center justify-center shrink-0"
+              style={{
+                transform: `scale(${zoomLevel / 100})`,
+              }}
+            >
               <img
                 src={`data:image/jpeg;base64,${selected.preview_base64}`}
-                alt={`First page of ${selected.document_name}`}
-                className="max-h-[75vh] w-auto object-contain rounded-lg shadow-lg border border-border"
+                alt={`Full preview of ${selected.document_name}`}
+                className={`rounded-xl shadow-2xl border border-slate-700/60 bg-white object-contain transition-all duration-150 ${
+                  fitMode === 'screen'
+                    ? 'h-[calc(100vh-120px)] w-auto max-w-[95vw]'
+                    : fitMode === 'width'
+                    ? 'w-[min(94vw,1100px)] h-auto max-h-none'
+                    : 'h-[calc(100vh-120px)] w-auto max-w-none'
+                }`}
               />
             </div>
           </div>

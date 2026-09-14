@@ -1,4 +1,5 @@
 """Retained local job inputs and restart recovery; SQLite remains single-host."""
+
 import asyncio
 import uuid
 
@@ -14,8 +15,10 @@ def register(tenant: str, job_id: str, payload: list[tuple[str, bytes, str]]) ->
     from audit_v2 import server
 
     store = ArtifactStore()
-    files = [{"filename": name, "mime_type": mime, "digest": store.put(tenant, data)}
-             for name, data, mime in payload]
+    files = [
+        {"filename": name, "mime_type": mime, "digest": store.put(tenant, data)}
+        for name, data, mime in payload
+    ]
     with server.OPERATIONAL_STORE.transaction(tenant) as tx:
         state = tx.load() or {}
         state.setdefault("jobs", {})[job_id] = {"files": files, "status": "running"}
@@ -47,10 +50,13 @@ async def _resume(tenant: str, job_id: str, files: list[dict]) -> None:
 
     try:
         store = ArtifactStore()
-        payload = [(f["filename"], await asyncio.to_thread(store.get, tenant, f["digest"]),
-                    f["mime_type"]) for f in files]
-        await asyncio.to_thread(server._process_documents, payload, tenant, NullProgressSink(),
-                                operation_id=job_id)
+        payload = [
+            (f["filename"], await asyncio.to_thread(store.get, tenant, f["digest"]), f["mime_type"])
+            for f in files
+        ]
+        await asyncio.to_thread(
+            server._process_documents, payload, tenant, NullProgressSink(), operation_id=job_id
+        )
         await asyncio.to_thread(mark, tenant, job_id, "done")
     except Exception:
         await asyncio.to_thread(mark, tenant, job_id, "failed")
@@ -80,14 +86,18 @@ async def retry(tenant: str, job_id: str) -> str:
     state = await asyncio.to_thread(_state, tenant, job_id)
     if job_id in state.get("operations", {}):
         raise HTTPException(409, "Audit already completed; use its saved result")
-    if state["jobs"][job_id]["status"] == "running" and job_id not in state.get("cancelled_operations", []):
+    if state["jobs"][job_id]["status"] == "running" and job_id not in state.get(
+        "cancelled_operations", []
+    ):
         await result(tenant, job_id)
         return job_id
     new_id = "job_" + uuid.uuid4().hex
     with server.OPERATIONAL_STORE.transaction(tenant) as tx:
         latest = tx.load() or {}
         latest.setdefault("jobs", {})[new_id] = {
-            "files": state["jobs"][job_id]["files"], "status": "running", "retry_of": job_id,
+            "files": state["jobs"][job_id]["files"],
+            "status": "running",
+            "retry_of": job_id,
         }
         tx.save(latest, "job_retry_accepted")
     await result(tenant, new_id)

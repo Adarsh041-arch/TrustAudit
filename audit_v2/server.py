@@ -86,6 +86,7 @@ from audit_v2.pipeline.summaries import (
 )
 from audit_v2.reporting.report_builders import generate_docx_report, generate_pdf_report
 from audit_v2.security.auth import authenticate, principal, require_reviewer
+from audit_v2.security.corrections import router as corrections_router
 from audit_v2.security.injection_detector import scan_text
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -177,7 +178,6 @@ app.add_middleware(
 from reconcile.api import router as recon_router  # noqa: E402
 
 app.include_router(recon_router)
-from audit_v2.security.corrections import router as corrections_router
 
 app.include_router(corrections_router)
 

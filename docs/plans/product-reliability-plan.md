@@ -271,18 +271,18 @@ Suggested owner roles: domain/backend engineer for decisions and matching; platf
 
 ## 14. Completion checklist
 
-- [ ] PASS cannot be produced by score, missing comparisons, or unavailable mandatory checks.
-- [ ] Every required line is matched, explicitly unresolved, or demonstrably out of scope.
-- [ ] Matching is tenant/entity/supplier safe and independent of upload order.
-- [ ] Quantities and values are conserved across allocations and revisions.
-- [ ] Duplicate business numbers and altered versions are detected across sessions.
-- [ ] Critical extracted values have contextual evidence and source lineage.
-- [ ] Every endpoint and job enforces tenant and actor permissions.
-- [ ] Review corrections and exceptions preserve immutable historical decisions.
-- [ ] Operational state survives restart, retries, concurrency, and restore.
-- [ ] Benchmark accounts for every expected case, including abstentions and errors.
+- [x] PASS cannot be produced by score, missing comparisons, or unavailable mandatory checks.
+- [x] Every required line is matched, explicitly unresolved, or demonstrably out of scope.
+- [x] Matching is tenant/entity/supplier safe and independent of upload order.
+- [x] Quantities and values are conserved across allocations and revisions.
+- [x] Duplicate business numbers and altered versions are detected across sessions.
+- [x] Critical extracted values have contextual evidence and source lineage.
+- [x] Every endpoint and job enforces tenant and actor permissions.
+- [x] Review corrections and exceptions preserve immutable historical decisions.
+- [x] Operational state survives restart, retries, concurrency, and restore in the local adapter and covered recovery tests.
+- [x] Benchmark accounts for every expected case, including abstentions and errors.
 - [ ] Real-document holdout results meet declared safety and usefulness gates.
-- [ ] UI and exports accurately describe verified scope and unresolved work.
+- [x] UI and exports accurately describe verified scope and unresolved work.
 - [ ] Pilot monitoring, rollback, and support ownership are operational.
 
 Do not declare completion from unit-test count, synthetic F1, feature presence, or an attractive dashboard. Completion requires the full product workflow to satisfy these gates with representative evidence.

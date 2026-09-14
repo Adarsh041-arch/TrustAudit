@@ -22,7 +22,7 @@ from backend.schemas import (
 logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = frozenset({".pdf", ".png", ".jpg", ".jpeg", ".tiff", ".tif", ".bmp", ".webp"})
-THUMB_MAX_SIZE = 180
+THUMB_MAX_SIZE = 2048
 CHECKLIST_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "checklist.md")
 
 def _generate_preview(file_path: str) -> str:
@@ -33,15 +33,16 @@ def _generate_preview(file_path: str) -> str:
             if len(doc) == 0:
                 doc.close()
                 return ""
-            pix = doc.load_page(0).get_pixmap()
+            pix = doc.load_page(0).get_pixmap(dpi=200)
             doc.close()
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
         else:
             img = Image.open(file_path).convert("RGB")
 
-        img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), Image.LANCZOS)
+        if img.width > THUMB_MAX_SIZE or img.height > THUMB_MAX_SIZE:
+            img.thumbnail((THUMB_MAX_SIZE, THUMB_MAX_SIZE), Image.LANCZOS)
         buf = BytesIO()
-        img.save(buf, format="JPEG", quality=80)
+        img.save(buf, format="JPEG", quality=90)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
     except Exception as e:
         logger.warning(f"Thumbnail generation skipped for {file_path}: {e}")

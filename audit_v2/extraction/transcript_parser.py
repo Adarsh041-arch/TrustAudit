@@ -98,7 +98,7 @@ def _currency(text: str) -> str | None:
 def _section_name(text: str, label: str) -> str | None:
     lines = _lines(text)
     for idx, line in enumerate(lines):
-        match = re.match(rf"(?i)^{label}\s*:?[ ]*(.*)$", line)
+        match = re.match(rf"(?i)^{label}\s*[:|]?[ ]*(.*)$", line)
         if not match:
             continue
         inline = match.group(1).strip("| ")
@@ -107,7 +107,7 @@ def _section_name(text: str, label: str) -> str | None:
         for candidate in lines[idx + 1 : idx + 4]:
             if _BUSINESS.search(candidate):
                 return candidate
-            if re.match(r"(?i)^(address|p\.?o\.? box|gst|vat|buyer|consignee)\b", candidate):
+            if re.match(r"(?i)^(address|p\.?o\.? box|gst|vat|buyer|consignee|importer)\b", candidate):
                 break
     return None
 
@@ -159,10 +159,11 @@ def _explicit_total(text: str) -> tuple[str | None, bool]:
 
 
 def _header_index(headers: list[str], aliases: tuple[str, ...]) -> int | None:
-    for idx, header in enumerate(headers):
-        normalized = re.sub(r"[^a-z0-9]+", " ", header.casefold()).strip()
-        if any(alias in normalized for alias in aliases):
-            return idx
+    for alias in aliases:
+        for idx, header in enumerate(headers):
+            normalized = re.sub(r"[^a-z0-9]+", " ", header.casefold()).strip()
+            if normalized == alias or f" {alias} " in f" {normalized} " or normalized.startswith(f"{alias} ") or normalized.endswith(f" {alias}"):
+                return idx
     return None
 
 
@@ -175,11 +176,11 @@ def _pipe_items(text: str, *, require_prices: bool = True) -> list[LineItemSchem
     ]
     rows = [cells for _, cells in row_entries]
     for row_idx, headers in enumerate(rows):
-        desc_i = _header_index(headers, ("description", "item", "product"))
+        desc_i = _header_index(headers, ("description of goods", "item description", "product description", "description", "particulars", "product", "item"))
         qty_i = _header_index(headers, ("quantity", "qty"))
         price_i = _header_index(headers, ("unit price", "rate", "price"))
-        total_i = _header_index(headers, ("amount", "line total", "value"))
-        hsn_i = _header_index(headers, ("hs code", "hsn", "sac"))
+        total_i = _header_index(headers, ("amount", "line total", "total amount", "value", "total"))
+        hsn_i = _header_index(headers, ("hs code", "hsn code", "hsn", "sac code", "sac"))
         required_indexes = (desc_i, qty_i, price_i, total_i) if require_prices else (desc_i, qty_i)
         if desc_i is None or qty_i is None or any(index is None for index in required_indexes):
             continue
@@ -207,10 +208,12 @@ def _pipe_items(text: str, *, require_prices: bool = True) -> list[LineItemSchem
             for line in source_lines[row_entries[entry_idx][0] + 1 : next_row_line]:
                 candidate = line.strip()
                 if not candidate:
-                    continue
+                    break
+                if candidate.startswith("|") or candidate.count("|") >= 2:
+                    break
                 if re.match(
                     r"(?i)^(?:total|subtotal|tax|amount\s+in\s+words|for\s+|"
-                    r"authorized|signature)",
+                    r"authorized|signature|shipment|incoterm|port|vessel|container|seal|payment|bank|note|terms|declaration|i\s+certify)",
                     candidate,
                 ):
                     break
@@ -332,9 +335,9 @@ def _common(text: str, *, require_prices: bool = True) -> dict[str, object]:
     vendor_gstin, buyer_gstin = _context_gstins(text)
     items, table_visible = _items(text, require_prices=require_prices)
     return {
-        "vendor_name": _section_name(text, r"(?:seller|vendor|supplier)") or _masthead_vendor(text),
+        "vendor_name": _section_name(text, r"(?:seller|vendor|supplier|exporter)") or _masthead_vendor(text),
         "vendor_gstin": vendor_gstin,
-        "buyer_name": _section_name(text, r"(?:buyer|bill\s+to|customer|consignee)"),
+        "buyer_name": _section_name(text, r"(?:buyer|bill\s+to|customer|consignee|importer)"),
         "buyer_gstin": buyer_gstin,
         "currency": _currency(text),
         "line_items": items,

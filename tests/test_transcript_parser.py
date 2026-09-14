@@ -181,3 +181,55 @@ Subject: Quotation Submission
     assert parsed.instance.sender == "Shree Ganesh Traders Pvt. Ltd."
     assert parsed.instance.recipient == "Skyline Infra Projects Ltd."
     assert parsed.instance.date == "2026-07-12"
+
+
+def test_commercial_invoice_with_item_column_and_exporter_importer() -> None:
+    transcript = """COMMERCIAL INVOICE
+
+Invoice No. | INV-2026-453
+Invoice Date | 18 August 2026
+Proforma Invoice | PI-2026-453
+Purchase Order | PO-2026-118
+Sales Contract | SC-2026-118
+Exporter | ABC Agro Exports Pvt. Ltd., Mumbai, India
+Importer | Green Valley Foods LLC, Dubai, UAE
+IEC | 0315012345
+Currency | USD
+
+Item | Description | HS Code | Qty (MT) | Unit Price (USD) | Amount (USD)
+1 | Premium Basmati Rice (5% Broken) | 10063020 | 500 | 1,050.00 | 525,000.00
+
+Shipment Information
+Incoterms: FOB Mumbai (Incoterms 2020)
+Port of Loading: Nhava Sheva, Mumbai, India
+Port of Discharge: Jebel Ali, Dubai, UAE
+Vessel: MV Ocean Pearl
+Container No.: MSCU4567891
+Seal No.: SL908812
+Payment Terms: Irrevocable Letter of Credit (60 Days)
+Total Invoice Value: USD 525,000.00
+
+I certify that the information contained in this invoice is true and correct and that the goods are of Indian origin.
+
+Authorized Signatory
+ABC Agro Exports Pvt. Ltd."""
+
+    parsed = parse_transcript(DocumentType.INVOICE, transcript, first_page=True)
+    assert parsed.complete is True
+    assert parsed.instance.invoice_number == "INV-2026-453"
+    assert parsed.instance.invoice_date == "2026-08-18"
+    assert parsed.instance.po_reference == "PO-2026-118"
+    assert parsed.instance.vendor_name == "ABC Agro Exports Pvt. Ltd., Mumbai, India"
+    assert parsed.instance.buyer_name == "Green Valley Foods LLC, Dubai, UAE"
+    assert parsed.instance.grand_total == "525000.00"
+    assert len(parsed.instance.line_items) == 1
+    assert parsed.instance.line_items[0].description == "Premium Basmati Rice (5% Broken)"
+    assert parsed.instance.line_items[0].quantity == "500"
+    assert parsed.instance.line_items[0].unit_price == "1,050.00"
+    assert parsed.instance.line_items[0].line_total == "525,000.00"
+    assert parsed.instance.line_items[0].hsn_sac == "10063020"
+
+    grounded = ground_instance(parsed.instance, transcript, page=1)
+    assert grounded.issues == []
+    assert len(grounded.instance.line_items) == 1
+

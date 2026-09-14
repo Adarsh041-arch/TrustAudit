@@ -69,12 +69,16 @@ async def retry(tenant: str, job_id: str) -> str:
     with server.OPERATIONAL_STORE.transaction(tenant) as tx:
         latest = tx.load() or {}
         latest.setdefault("jobs", {})[new_id] = {
-            "files": files, "status": "running", "retry_of": job_id,
+            "files": files,
+            "status": "running",
+            "retry_of": job_id,
         }
         tx.save(latest, "job_retry_accepted")
     await (await client()).start_workflow(
-        "ProductAuditWorkflow", {"tenant_id": tenant, "files": files, "operation_id": new_id},
-        id=new_id, task_queue=os.getenv("TEMPORAL_TASK_QUEUE", "audit-documents"),
+        "ProductAuditWorkflow",
+        {"tenant_id": tenant, "files": files, "operation_id": new_id},
+        id=new_id,
+        task_queue=os.getenv("TEMPORAL_TASK_QUEUE", "audit-documents"),
     )
     return new_id
 

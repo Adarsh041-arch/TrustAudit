@@ -30,12 +30,15 @@ from audit_v2.domain.evidence import (
 )
 from audit_v2.domain.models import DocumentType, Severity
 from audit_v2.gateway.nvidia_gateway import NvidiaGateway
+from audit_v2.gateway.openrouter_gateway import DEFAULT_OPENROUTER_MODEL, OpenRouterGateway
 from audit_v2.gateway.structured import extract_structured
+from audit_v2.gateway.vision_gateway import ExtractionGateway
 
 logger = logging.getLogger(__name__)
 
 TENANT_MODEL_ENV = "NVIDIA_TEXT_MODEL"
 DEFAULT_TEXT_MODEL = "meta/llama-3.3-70b-instruct"
+OPENROUTER_MODEL_ENV = "OPENROUTER_MODEL"
 
 #: Loose nature synonyms a small model tends to emit → canonical nature.
 _NATURE_SYNONYMS = {
@@ -76,7 +79,12 @@ class _LlmCrossCheck(BaseModel):
     summary: str = Field(default="", description="one-line verdict")
 
 
-def _make_text_gateway() -> NvidiaGateway:
+def _make_text_gateway() -> ExtractionGateway:
+    if os.getenv("OPENROUTER_API_KEY"):
+        return OpenRouterGateway(
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            model=os.getenv(OPENROUTER_MODEL_ENV) or os.getenv("CROSS_CHECK_MODEL") or DEFAULT_OPENROUTER_MODEL,
+        )
     return NvidiaGateway(model=os.getenv(TENANT_MODEL_ENV) or DEFAULT_TEXT_MODEL)
 
 
@@ -187,7 +195,7 @@ def run_cross_check(
     doc_type: DocumentType,
     tenant_id: str,
     *,
-    gateway: NvidiaGateway | None = None,
+    gateway: ExtractionGateway | None = None,
 ) -> CrossCheckResult:
     """Cross-check the evidence list via the text LLM, degrading gracefully.
 
@@ -202,12 +210,12 @@ def run_cross_check(
         )
 
     if gateway is None:
-        if not os.getenv("NVIDIA_API_KEY"):
+        if not (os.getenv("OPENROUTER_API_KEY") or os.getenv("NVIDIA_API_KEY")):
             return CrossCheckResult(
                 document_id=document_id,
                 supported=None,
                 execution_status="unavailable",
-                summary="cross-check skipped (NVIDIA_API_KEY not set)",
+                summary="cross-check skipped (OPENROUTER_API_KEY or NVIDIA_API_KEY not set)",
             )
         gateway = _make_text_gateway()
 

@@ -1,4 +1,5 @@
 """Verified local backups and restores into new directories; never overwrite live data."""
+
 import argparse
 import hashlib
 import json
@@ -49,10 +50,14 @@ def create(source: Path, destination: Path) -> dict:
         if any(p.is_symlink() for p in artifacts.rglob("*")) or artifacts.is_symlink():
             raise ValueError("Artifact symlinks are not supported")
         shutil.copytree(artifacts, destination / "artifacts")
-    manifest = {"version": 1, "files": {
-        str(path.relative_to(destination).as_posix()): _digest(path)
-        for path in sorted(destination.rglob("*")) if path.is_file()
-    }}
+    manifest = {
+        "version": 1,
+        "files": {
+            str(path.relative_to(destination).as_posix()): _digest(path)
+            for path in sorted(destination.rglob("*"))
+            if path.is_file()
+        },
+    }
     (destination / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     verify(destination)
     return manifest

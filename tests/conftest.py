@@ -28,22 +28,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 @pytest.fixture(autouse=True)
 def _hermetic_no_live_vlm(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the suite offline by default — no live NVIDIA VLM calls.
-
-    The real ``NVIDIA_API_KEY`` loads from ``.env`` on import, so any test that
-    uploads through the server would otherwise exercise the live VLM. On the
-    saturated shared endpoint that means a 5x120s retry loop (~12 min/doc, see
-    ``nvidia_gateway.NvidiaGateway``) — the suite appears to hang. Removing the
-    key makes ``activities.extract_with_vlm`` skip the network and fall back to
-    regex extraction, which is what the unit suite asserts against anyway.
-
-    Unaffected: gateway unit tests inject their own ``api_key=`` and mock
-    ``requests.post``; the recon ask-AI test sets its own key and stubs the
-    gateway. Set ``TRUSTAUDIT_LIVE_VLM=1`` to opt back into live calls for a
-    deliberate end-to-end VLM check.
-    """
+    """Keep the suite offline by default — no live model calls."""
     if not os.getenv("TRUSTAUDIT_LIVE_VLM"):
         monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
 
 @pytest.fixture(scope="session")
@@ -116,20 +104,19 @@ def all_check_ids(check_catalog: CheckCatalog) -> set[str]:
 
 # ─── Evidence-pipeline test doubles (new_requirements.md Phase 1, plan §8) ────
 #
-# The pipeline touches the network only through an injected NvidiaGateway and
+# The pipeline touches the network only through an injected gateway and
 # OCR only through RapidOcrExtractor. These doubles let the pipeline/server/
 # cross-check tests run fully offline and deterministically.
 
 
 class FakeGateway:
-    """In-memory stand-in for :class:`NvidiaGateway`.
+    """In-memory stand-in for :class:`NvidiaGateway` or :class:`OpenRouterGateway`.
 
     Returns queued replies in order and records every ``extract`` call. A queued
     item that is an ``Exception`` is *raised* (used to simulate a guided_json
     400 → schema-in-prompt fallback, or a hard failure); anything else is
     returned as the ``content`` of a :class:`ModelResponse`. Never touches the
-    network. The signature mirrors ``NvidiaGateway.extract`` exactly so it drops
-    in wherever a real gateway would.
+    network.
     """
 
     def __init__(self, replies: list[Any] | None = None) -> None:
@@ -189,20 +176,10 @@ class _UnavailableOcr:
 
 @pytest.fixture(autouse=True)
 def _stub_pipeline_ocr(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default the pipeline's OCR to 'unavailable'.
-
-    Keeps server/pipeline tests fast and hermetic whether or not
-    ``rapidocr-onnxruntime`` is installed. Only patches the name the pipeline
-    resolves (``evidence_pipeline.RapidOcrExtractor``); the OCR unit tests in
-    ``test_ocr_extractor.py`` import the real class directly and are unaffected,
-    and tests that need specific OCR behaviour inject their own extractor via
-    ``run_document_pipeline(ocr=...)``, which takes precedence.
-    """
+    """Default the pipeline's OCR to 'unavailable'."""
     monkeypatch.setattr(
         "audit_v2.pipeline.evidence_pipeline.RapidOcrExtractor", _UnavailableOcr
     )
-    # Unit/integration tests are hermetic even when a developer happens to have
-    # llama-server running. Tests that exercise GLM inject their own gateway.
     monkeypatch.setenv("V2_VISION_BACKEND", "none")
 
 

@@ -18,7 +18,10 @@ try:
     from reportlab.lib.pagesizes import letter  # type: ignore[import-untyped]
     from reportlab.lib.styles import ParagraphStyle  # type: ignore[import-untyped]
     from reportlab.platypus import (  # type: ignore[import-untyped]
-        Paragraph, SimpleDocTemplate, Table, TableStyle,
+        Paragraph,
+        SimpleDocTemplate,
+        Table,
+        TableStyle,
     )
 
     REPORTLAB_AVAILABLE = True

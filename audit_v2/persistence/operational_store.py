@@ -38,7 +38,13 @@ class StateTransaction:
     def save(self, value: dict, event: str = "audit_state_committed") -> str:
         # Independent product modules share tenant state without erasing each other.
         existing = self.load() or {}
-        for section in ("reconciliation_runs", "operations", "corrections", "jobs", "cancelled_operations"):
+        for section in (
+            "reconciliation_runs",
+            "operations",
+            "corrections",
+            "jobs",
+            "cancelled_operations",
+        ):
             if section in existing and section not in value:
                 value = {**value, section: existing[section]}
         payload = json.dumps(value, sort_keys=True, default=str)

@@ -1,4 +1,5 @@
 """Version-checked reviewer corrections with retained source and audit history."""
+
 import re
 import uuid
 from datetime import UTC, datetime
@@ -10,20 +11,40 @@ from pydantic import BaseModel, Field
 from audit_v2.domain.evidence import EvidenceNature, PipelineEvidence
 from audit_v2.domain.finding_generator import _document_hash
 from audit_v2.domain.models import DocumentHeader, LineItem, ProvenancedValue
-from audit_v2.pipeline.evidence_pipeline import DocumentPipelineResult
 from audit_v2.pipeline.events import NullProgressSink
+from audit_v2.pipeline.evidence_pipeline import DocumentPipelineResult
 from audit_v2.security.auth import principal, require_reviewer
 
 router = APIRouter(prefix="/api/v2/documents", tags=["corrections"])
 HEADER_FIELDS = {
-    "vendor_name", "vendor_gstin", "buyer_name", "buyer_gstin", "invoice_number",
-    "po_number", "challan_number", "grn_number", "invoice_date", "due_date",
-    "order_date", "delivery_date", "received_date", "grn_date", "po_reference",
-    "subtotal", "grand_total", "discount_amount",
+    "vendor_name",
+    "vendor_gstin",
+    "buyer_name",
+    "buyer_gstin",
+    "invoice_number",
+    "po_number",
+    "challan_number",
+    "grn_number",
+    "invoice_date",
+    "due_date",
+    "order_date",
+    "delivery_date",
+    "received_date",
+    "grn_date",
+    "po_reference",
+    "subtotal",
+    "grand_total",
+    "discount_amount",
 }
 LINE_FIELDS = {
-    "description", "quantity", "unit_price", "line_total", "quantity_unit",
-    "hsn_sac", "item_code", "po_line_reference",
+    "description",
+    "quantity",
+    "unit_price",
+    "line_total",
+    "quantity_unit",
+    "hsn_sac",
+    "item_code",
+    "po_line_reference",
 }
 
 
@@ -54,9 +75,11 @@ def revision(document_id: str) -> dict:
 
         parsed = ExtractedDocument.model_validate(document)
         return {
-            "revision": _document_hash(parsed), "document": document,
-            "corrections": [c for c in state.get("corrections", [])
-                            if c["document_id"] == document_id],
+            "revision": _document_hash(parsed),
+            "document": document,
+            "corrections": [
+                c for c in state.get("corrections", []) if c["document_id"] == document_id
+            ],
         }
 
 
@@ -92,48 +115,80 @@ def correct(document_id: str, payload: CorrectionRequest) -> dict:
             else:
                 raise HTTPException(422, "Unsupported correction field")
             previous = getattr(target, field)
-            if field in {"subtotal", "grand_total", "discount_amount", "quantity", "unit_price", "line_total"}:
+            if field in {
+                "subtotal",
+                "grand_total",
+                "discount_amount",
+                "quantity",
+                "unit_price",
+                "line_total",
+            }:
                 try:
                     if not Decimal(change.value).is_finite():
                         raise ValueError("Non-finite amount")
                 except (InvalidOperation, ValueError) as exc:
-                    raise HTTPException(422, "Use a finite number without currency symbols") from exc
+                    raise HTTPException(
+                        422, "Use a finite number without currency symbols"
+                    ) from exc
             replacement = ProvenancedValue(
-                value=change.value.strip(), raw=change.source_quote, page=change.page,
-                confidence=0.5, currency=previous.currency if previous else None,
-                source_id=f"reviewer:{actor.actor_id}", label=change.path,
+                value=change.value.strip(),
+                raw=change.source_quote,
+                page=change.page,
+                confidence=0.5,
+                currency=previous.currency if previous else None,
+                source_id=f"reviewer:{actor.actor_id}",
+                label=change.path,
                 text_span=change.source_quote,
             )
             setattr(target, field, replacement)
-            changes.append({**change.model_dump(), "previous": previous.model_dump(mode="json")
-                            if previous else None})
+            changes.append(
+                {
+                    **change.model_dump(),
+                    "previous": previous.model_dump(mode="json") if previous else None,
+                }
+            )
         correction_id = "cor_" + uuid.uuid4().hex
         entry = {
-            "correction_id": correction_id, "document_id": document_id,
-            "actor_id": actor.actor_id, "reason": payload.reason,
-            "previous_revision": payload.expected_revision, "changes": changes,
+            "correction_id": correction_id,
+            "document_id": document_id,
+            "actor_id": actor.actor_id,
+            "reason": payload.reason,
+            "previous_revision": payload.expected_revision,
+            "changes": changes,
             "created_at": datetime.now(UTC).isoformat(),
             "original_document": original.model_dump(mode="json"),
         }
         corrected.review_reasons.append(f"Reviewer correction {correction_id} requires review")
         evidence = list(server.EVIDENCE_STORE.get(document_id, []))
-        evidence.append(PipelineEvidence(
-            document_id=document_id, nature=EvidenceNature.EXTRACTED_FIELDS,
-            source="reviewer_correction", derived_from=[e.evidence_id for e in evidence],
-            payload=entry, summary=payload.reason, confidence=0.5,
-        ))
+        evidence.append(
+            PipelineEvidence(
+                document_id=document_id,
+                nature=EvidenceNature.EXTRACTED_FIELDS,
+                source="reviewer_correction",
+                derived_from=[e.evidence_id for e in evidence],
+                payload=entry,
+                summary=payload.reason,
+                confidence=0.5,
+            )
+        )
         pipeline = DocumentPipelineResult(
-            document_id=document_id, doc_type=corrected.doc_type, document=corrected,
-            evidences=evidence, requires_human_review=True,
+            document_id=document_id,
+            doc_type=corrected.doc_type,
+            document=corrected,
+            evidences=evidence,
+            requires_human_review=True,
             contradictions=server.CONTRADICTION_STORE.get(document_id, []),
         )
         old_result = server.RESULTS_STORE.get(document_id, {})
         try:
             result = server._process_documents_impl(
                 [(old_result.get("document_name", document_id), b"", "application/pdf", pipeline)],
-                actor.tenant_id, NullProgressSink(),
+                actor.tenant_id,
+                NullProgressSink(),
             )
-            server.RESULTS_STORE[document_id]["preview_base64"] = old_result.get("preview_base64", "")
+            server.RESULTS_STORE[document_id]["preview_base64"] = old_result.get(
+                "preview_base64", ""
+            )
             for item in server.REVIEW_QUEUE._items.values():
                 if item.document_id == document_id and item.status in {"PENDING", "ESCALATED"}:
                     item.evidence_corrected_by = actor.actor_id
@@ -144,5 +199,8 @@ def correct(document_id: str, payload: CorrectionRequest) -> dict:
         except Exception:
             server._restore(actor.tenant_id, before)
             raise
-        return {**server._present_batch(result), "revision": entry["revision"],
-                "correction_id": correction_id}
+        return {
+            **server._present_batch(result),
+            "revision": entry["revision"],
+            "correction_id": correction_id,
+        }

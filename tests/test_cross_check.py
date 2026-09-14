@@ -185,3 +185,104 @@ def test_contradiction_to_finding_is_advisory_only() -> None:
     assert finding.requires_human_review is True
     assert finding.severity == Severity.HIGH
     assert finding.check_id.startswith(server.CROSSCHECK_CHECK_PREFIX)
+
+
+# ─── OpenRouter cross-check gateway tests ─────────────────────────────────────
+
+
+def test_openrouter_gateway_extract_with_reasoning(monkeypatch) -> None:
+    from audit_v2.gateway.openrouter_gateway import OpenRouterGateway
+
+    recorded_kwargs: dict = {}
+
+    class DummyMessage:
+        content = json.dumps({"supported": True, "contradictions": [], "summary": "all match"})
+        reasoning_details = "step-by-step reasoning"
+
+    class DummyChoice:
+        message = DummyMessage()
+
+    class DummyResponse:
+        choices = [DummyChoice()]
+        usage = type("Usage", (), {"prompt_tokens": 120, "completion_tokens": 45})()
+
+    class DummyCompletions:
+        def create(self, **kwargs):
+            recorded_kwargs.update(kwargs)
+            return DummyResponse()
+
+    class DummyChat:
+        completions = DummyCompletions()
+
+    gateway = OpenRouterGateway(
+        api_key="sk-or-test-key",
+        model="nvidia/nemotron-3-ultra-550b-a55b:free",
+        enable_reasoning=True,
+    )
+    gateway.client.chat = DummyChat()
+
+    resp = gateway.extract(
+        images=[],
+        prompt="Verify these evidences",
+        tenant_id="tenant-1",
+        response_schema={"type": "object"},
+    )
+
+    assert resp.content == DummyMessage.content
+    assert resp.tokens_prompt == 120
+    assert resp.tokens_completion == 45
+    assert recorded_kwargs["model"] == "nvidia/nemotron-3-ultra-550b-a55b:free"
+    assert recorded_kwargs["extra_body"] == {"reasoning": {"enabled": True}}
+    assert "schema" in recorded_kwargs["messages"][0]["content"]
+
+
+def test_openrouter_gateway_chat_multi_turn_reasoning() -> None:
+    from audit_v2.gateway.openrouter_gateway import OpenRouterGateway
+
+    recorded_messages: list = []
+
+    class DummyMessage:
+        content = "There are 3 r's in strawberry."
+        reasoning_details = {"thought_process": "s-t-r-a-w-b-e-r-r-y has 3 r's"}
+
+    class DummyChoice:
+        message = DummyMessage()
+
+    class DummyResponse:
+        choices = [DummyChoice()]
+
+    class DummyCompletions:
+        def create(self, **kwargs):
+            recorded_messages.extend(kwargs.get("messages", []))
+            return DummyResponse()
+
+    class DummyChat:
+        completions = DummyCompletions()
+
+    gateway = OpenRouterGateway(
+        api_key="sk-or-test-key",
+        model="nvidia/nemotron-3-ultra-550b-a55b:free",
+        enable_reasoning=True,
+    )
+    gateway.client.chat = DummyChat()
+
+    # Step 1: Initial call
+    resp1 = gateway.chat_multi_turn(
+        messages=[{"role": "user", "content": "How many r's are in the word 'strawberry'?"}]
+    )
+    msg1 = resp1.choices[0].message
+
+    # Step 2: Multi-turn preserving reasoning_details
+    messages = [
+        {"role": "user", "content": "How many r's are in the word 'strawberry'?"},
+        {
+            "role": "assistant",
+            "content": msg1.content,
+            "reasoning_details": msg1.reasoning_details,
+        },
+        {"role": "user", "content": "Are you sure? Think carefully."},
+    ]
+    resp2 = gateway.chat_multi_turn(messages=messages)
+    assert resp2 is not None
+    assert len(recorded_messages) == 4  # 1 from first call + 3 from second call
+

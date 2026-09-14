@@ -7,7 +7,7 @@ from io import BytesIO
 from audit_v2.extraction.vlm_extractor import render_pages_to_jpeg
 
 
-def generate_preview(data: bytes, mime_type: str, max_size: int = 180) -> str:
+def generate_preview(data: bytes, mime_type: str, max_size: int = 2048) -> str:
     try:
         from PIL import Image
 
@@ -15,9 +15,10 @@ def generate_preview(data: bytes, mime_type: str, max_size: int = 180) -> str:
         if not pages:
             return ""
         img = Image.open(BytesIO(pages[0]))
-        img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+        if img.width > max_size or img.height > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         buf = BytesIO()
-        img.convert("RGB").save(buf, format="JPEG", quality=80)
+        img.convert("RGB").save(buf, format="JPEG", quality=90, optimize=True)
         return base64.b64encode(buf.getvalue()).decode("ascii")
     except Exception:
         return ""
