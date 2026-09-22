@@ -8,7 +8,11 @@ export function Header({ dark, onToggleDark, title }: HeaderProps) {
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b-[0.5px] border-border">
       <div className="flex items-center gap-3">
-        <span className="text-[22px] font-medium text-ink">TrustAudit</span>
+        <img
+          src={dark ? "/trustaudit-logo-dark.png" : "/trustaudit-logo-transparent.png"}
+          alt="TrustAudit"
+          className="h-8 w-auto object-contain"
+        />
         {title && (
           <>
             <span className="text-muted mx-1">/</span>

@@ -23,7 +23,7 @@ checks:
     tolerance: {type: absolute, value: "0.00", currency_scaled: true}
     failure_message: "Line total sum {sum_lines} != stated subtotal {stated_subtotal}"
     requires_human_review: false
-
+    blocking: false
   - check_id: CHK-ARITH-TAX-001
     title: Tax rate matches HSN/SAC code prescribed rate
     category: arithmetic
@@ -56,6 +56,7 @@ checks:
     tolerance: {type: relative, value: "0.05"}
     failure_message: "Discount {discount_pct}% exceeds max {max_pct}% of subtotal"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-ARITH-GRAND-001
     title: Grand total equals subtotal plus taxes minus discounts
@@ -92,6 +93,8 @@ checks:
     requires_human_review: false
 
   # ─── Sequence / Gap (3 checks, deterministic) ───────────────────────────────
+    blocking: false
+
   - check_id: CHK-SEQ-INVNUM-001
     title: Invoice numbers are sequential within batch
     category: sequence
@@ -102,6 +105,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Gap in invoice sequence: {prev} -> {current} (missing {gap_count})"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-SEQ-PONUM-001
     title: PO numbers are sequential within batch
@@ -113,6 +117,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Gap in PO sequence: {prev} -> {current}"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-SEQ-CHALLAN-001
     title: Delivery challan numbers are sequential within batch
@@ -126,6 +131,8 @@ checks:
     requires_human_review: false
 
   # ─── Threshold (3 checks, deterministic) ────────────────────────────────────
+    blocking: false
+
   - check_id: CHK-THRESHOLD-LINE-001
     title: No single line item exceeds PO total value
     category: threshold
@@ -147,6 +154,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Discount {value}% is outside allowed range [0, {max_pct}]"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-THRESHOLD-TAXRATE-001
     title: Tax rate is within valid GST slab rates
@@ -181,6 +189,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "PO date {po_date} is after invoice date {inv_date}"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-TEMP-DELIVERY-001
     title: Delivery date is not after GRN date
@@ -205,83 +214,87 @@ checks:
     requires_human_review: false
 
   # ─── Reference Integrity (4 checks, deterministic) ──────────────────────────
+    blocking: false
+
   - check_id: CHK-REF-PO-001
-    title: Invoice references a valid PO number
+    title: Invoice includes a purchase-order reference
     category: reference_integrity
     applies_to: [invoice]
-    severity: high
+    severity: low
     determinism: deterministic
     inputs: [po_reference]
     tolerance: {type: none, value: "0"}
-    failure_message: "Invoice {doc_id} has no PO reference or PO does not exist"
+    failure_message: "Invoice has no recommended purchase-order reference"
     requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
 
   - check_id: CHK-REF-GST-001
-    title: GSTIN format is valid (15 chars, alphanumeric)
+    title: Compulsory supplier GSTIN is present and valid where GST applies
     category: reference_integrity
     applies_to: [invoice, purchase_order]
     severity: critical
     determinism: deterministic
-    inputs: [gstin]
+    inputs: [vendor_gstin]
     tolerance: {type: none, value: "0"}
-    failure_message: "GSTIN {gstin} does not match valid format"
+    failure_message: "Supplier GSTIN {gstin} is missing or invalid"
     requires_human_review: false
+    requirement_level: compulsory
 
   - check_id: CHK-REF-HSN-001
-    title: HSN/SAC code is present and valid
+    title: Compulsory HSN/SAC code is present and valid
     category: reference_integrity
     applies_to: [invoice, delivery_challan]
-    severity: medium
+    severity: critical
     determinism: deterministic
-    inputs: [line_items]
+    inputs: [line_items.hsn_sac]
     tolerance: {type: none, value: "0"}
     failure_message: "HSN/SAC code missing or invalid for line {n}"
     requires_human_review: false
+    requirement_level: compulsory
 
   - check_id: CHK-REF-BANK-001
-    title: Bank details (account number, IFSC) are present
+    title: Invoice includes recommended bank details
     category: reference_integrity
     applies_to: [invoice]
     severity: low
     determinism: deterministic
     inputs: [bank_details]
     tolerance: {type: none, value: "0"}
-    failure_message: "Bank details are incomplete: missing {missing_field}"
+    failure_message: "Invoice omits recommended bank detail(s): {missing_field}"
     requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
 
-  # ─── Format / Completeness (5 checks, 4 deterministic + 1 model_assisted) ───
+  # ─── Compulsory and recommended document fields ─────────────────────────────
   - check_id: CHK-CERT-MANDATORY-001
-    title: Certificate identity, parties, and goods are present
+    title: Certificate type, parties, origin, issuer, and authentication are present
     category: format_completeness
     applies_to: [certificate_of_origin]
     severity: critical
     determinism: deterministic
-    inputs: [certificate_number, certificate_date, exporter_name, consignee_name, goods]
+    inputs: [certificate_number, certificate_date, exporter_name, exporter_address, consignee_name, consignee_address, country_of_origin, issuing_authority, signature_present, seal_present, goods]
     tolerance: {type: none, value: "0"}
-    failure_message: "Certificate is missing required fields"
+    failure_message: "Certificate of origin is missing compulsory identity or authentication fields"
     requires_human_review: false
-    requirement_level: compulsory
-    requirement_level: recommended
-    blocking: false
-    score_impact: false
     requirement_level: compulsory
 
   - check_id: CHK-CERT-GOODS-001
-    title: Certificate goods rows contain valid descriptions, HS codes, and quantities
+    title: Certificate goods contain compulsory descriptions, HS codes, quantities, and package details
     category: format_completeness
     applies_to: [certificate_of_origin]
-    severity: low
+    severity: critical
     determinism: deterministic
-    inputs: [certificate_goods]
+    inputs: [certificate_goods.description, certificate_goods.hs_code, certificate_goods.quantity, certificate_goods.quantity_unit]
     tolerance: {type: none, value: "0"}
     failure_message: "Certificate goods row is incomplete or has an invalid HS code"
     requires_human_review: false
-    requirement_level: recommended
-    blocking: false
-    score_impact: false
+    requirement_level: compulsory
 
   - check_id: CHK-CERT-REFERENCE-001
-    title: Certificate contains a complete invoice reference
+    title: Certificate contains the compulsory related invoice number and date
     category: reference_integrity
     applies_to: [certificate_of_origin]
     severity: critical
@@ -300,54 +313,143 @@ checks:
     determinism: deterministic
     inputs: [party_names, party_addresses, gstin, document_number, document_date, delivery_address, place_of_supply, reverse_charge, payment_terms, delivery_or_receipt_date, country_of_origin, issuing_authority, signature_or_seal]
     tolerance: {type: none, value: "0"}
-    failure_message: "Missing mandatory field(s): {missing_fields}"
+    failure_message: "Missing compulsory field(s): {missing_fields}"
     requires_human_review: false
+    requirement_level: compulsory
 
   - check_id: CHK-FORMAT-MANDATORY-002
-    title: Line items have required sub-fields (description, qty, rate, amount)
+    title: Compulsory line descriptions, HSN/SAC, quantities, units, rates, and values are present
     category: format_completeness
     applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
     severity: critical
     determinism: deterministic
-    inputs: [line_items]
+    inputs: [line_items.description, line_items.hsn_sac, line_items.quantity, line_items.quantity_unit, line_items.unit_price, line_items.line_total]
     tolerance: {type: none, value: "0"}
-    failure_message: "Line {n} missing required field: {field}"
+    failure_message: "Line {n} missing compulsory field: {field}"
     requires_human_review: false
-    requirement_level: compulsory
     requirement_level: compulsory
 
   - check_id: CHK-FORMAT-TAXBREAKDOWN-001
-    title: Tax breakdown is present with rate, taxable value, and amount
+    title: Compulsory taxable value, tax rate, and tax amount are present
     category: format_completeness
-    applies_to: [invoice]
+    applies_to: [invoice, delivery_challan]
     severity: critical
     determinism: deterministic
-    inputs: [tax_lines]
+    inputs: [tax_lines.taxable_value, tax_lines.rate, tax_lines.cgst, tax_lines.sgst, tax_lines.igst, tax_lines.total_tax]
     tolerance: {type: none, value: "0"}
-    failure_message: "Tax line {n} missing required breakdown field"
+    failure_message: "Tax line {n} missing compulsory breakdown field"
     requires_human_review: false
+    requirement_level: compulsory
 
   - check_id: CHK-FORMAT-CURRENCY-001
-    title: All monetary values use consistent currency format
+    title: All monetary values use a consistent currency
     category: format_completeness
     applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
-    severity: low
+    severity: high
     determinism: deterministic
     inputs: [all_monetary_fields]
     tolerance: {type: none, value: "0"}
-    failure_message: "Inconsistent currency format at {field}: {raw_value}"
+    failure_message: "Inconsistent currency at {field}: {raw_value}"
     requires_human_review: false
+    requirement_level: control
 
   - check_id: CHK-FORMAT-WORDS-001
-    title: Amount in words matches numeric grand total
+    title: Invoice includes the recommended amount in words
     category: format_completeness
     applies_to: [invoice]
-    severity: critical
+    severity: low
     determinism: model_assisted
     inputs: [amount_in_words, grand_total]
     tolerance: {type: none, value: "0"}
-    failure_message: "Amount in words \"{words}\" does not match total {total}"
-    requires_human_review: true
+    failure_message: "Recommended amount in words is absent or does not match total {total}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-INVREC-001
+    title: Invoice includes recommended commercial and payment details
+    category: format_completeness
+    applies_to: [invoice]
+    severity: low
+    determinism: model_assisted
+    inputs: [po_reference, bank_details, payment_terms, delivery_terms, separately_shown_discount, eway_bill_number, company_logo, terms_and_conditions, qr_code]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Invoice omits recommended field(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-DCREC-001
+    title: Delivery challan includes recommended movement details
+    category: format_completeness
+    applies_to: [delivery_challan]
+    severity: low
+    determinism: model_assisted
+    inputs: [document_title, movement_purpose, vehicle_number, transporter_details, eway_bill_number, po_or_invoice_reference]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Delivery challan omits recommended field(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-POREC-001
+    title: Purchase order includes recommended tax and contractual details
+    category: format_completeness
+    applies_to: [purchase_order]
+    severity: low
+    determinism: model_assisted
+    inputs: [expected_tax_rate, terms_and_conditions, master_contract_reference, currency, incoterms]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Purchase order omits recommended field(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-GRNREC-001
+    title: Goods receipt note includes recommended inspection and traceability details
+    category: format_completeness
+    applies_to: [goods_receipt_note]
+    severity: low
+    determinism: model_assisted
+    inputs: [batch_or_lot_number, expiry_date, condition_or_damage_remarks, inspection_signoff, eway_bill_reference]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Goods receipt note omits recommended field(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-CONREC-001
+    title: Contract includes recommended tax, performance, and remedy clauses
+    category: format_completeness
+    applies_to: [contract]
+    severity: low
+    determinism: model_assisted
+    inputs: [party_gstin, tax_pricing_clause, payment_terms, performance_milestones, dispute_resolution, governing_law, termination, indemnity, tds_responsibility, stamp_duty]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Contract omits recommended clause(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+
+  - check_id: CHK-FORMAT-COOREC-001
+    title: Certificate of origin includes recommended transport and preference details
+    category: format_completeness
+    applies_to: [certificate_of_origin]
+    severity: low
+    determinism: model_assisted
+    inputs: [transport_mode, loading_port, discharge_port, rules_of_origin_criteria, fta_or_pta_reference]
+    tolerance: {type: none, value: "0"}
+    failure_message: "Certificate of origin omits recommended field(s): {missing_fields}"
+    requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
 
   # ─── Quantity / Delivery (2 checks, deterministic) ──────────────────────────
   - check_id: CHK-REF-QTY-001
@@ -361,7 +463,7 @@ checks:
     failure_message: "Line {n}: invoiced qty {inv_qty} > PO qty {po_qty}"
     requires_human_review: false
     requirement_level: compulsory
-    requirement_level: compulsory
+    blocking: false
 
   - check_id: CHK-REF-QTY-002
     title: Received quantity does not exceed delivery challan quantity
@@ -378,6 +480,8 @@ checks:
   # ─── Cross-document / corpus (5 checks, deterministic, Phase 7) ─────────────
   # These SKIP on single-document runs and execute when the workflow provides
   # a TransactionCluster / CorpusIndex on the CheckContext.
+    blocking: false
+
   - check_id: CHK-DUP-DOC-001
     title: Document is not a duplicate within the tenant corpus
     category: duplicate
@@ -388,6 +492,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Document {doc} duplicates {dupes} ({signature})"
     requires_human_review: true
+    blocking: false
 
   - check_id: CHK-XDOC-QTY-001
     title: Invoiced quantity does not exceed received quantity
@@ -399,6 +504,7 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Line {n}: invoiced qty {inv_qty} > received qty {recv_qty}"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-XDOC-PRICE-001
     title: Invoiced unit price matches PO unit price within tolerance
@@ -410,6 +516,7 @@ checks:
     tolerance: {type: absolute, value: "0.00", currency_scaled: true}
     failure_message: "Line {n}: invoiced price {inv_price} != PO price {po_price}"
     requires_human_review: false
+    blocking: false
 
   - check_id: CHK-XDOC-RECEIPT-001
     title: Invoice above value threshold has a goods receipt
@@ -421,6 +528,7 @@ checks:
     tolerance: {type: absolute, value: "50000"}
     failure_message: "Invoice total {total} above {threshold} with no goods receipt"
     requires_human_review: true
+    blocking: false
 
   - check_id: CHK-XDOC-CUMUL-001
     title: Cumulative invoiced across cluster does not exceed PO value
@@ -432,3 +540,4 @@ checks:
     tolerance: {type: absolute, value: "0.00", currency_scaled: true}
     failure_message: "Cumulative invoiced {cumulative} exceeds PO value {po_value}"
     requires_human_review: true
+    blocking: false

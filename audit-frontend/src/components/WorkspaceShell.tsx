@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { ShieldCheck, Plus, Moon, Sun, Menu, X, ArrowUpRight, FlaskConical, ChevronRight } from 'lucide-react'
+import { Plus, Moon, Sun, Menu, X, ArrowUpRight, FlaskConical, ChevronRight } from 'lucide-react'
 
 type Props = {
   children: ReactNode; dark: boolean; onToggleDark: () => void
   activeTab: string; onNavigate: (id: string) => void
-  navItems: { id: string; label: string; icon: ReactNode; badge?: number }[]
+  navItems: { id: string; label: string; icon: ReactNode; badge?: number; badgeColor?: string; section?: 'WORKSPACE' | 'OPERATIONS' | 'MANAGE' }[]
   isDemo: boolean; uploading: boolean; onLoadDemo: () => void; onExitDemo: () => void
 }
 
@@ -15,15 +15,31 @@ export function WorkspaceShell(p: Props) {
     <a href="#workspace-main" className="v2-skip">Skip to workspace</a>
     {open && <button className="v2-overlay" aria-label="Close navigation" onClick={() => setOpen(false)} />}
     <aside className={`v2-sidebar ${open ? 'is-open' : ''}`}>
-      <a href="?mode=v2" className="v2-brand"><span><ShieldCheck size={23} /></span>TrustAudit <small>V2</small></a>
+      <a href="?mode=v2" className="v2-brand" aria-label="TrustAudit V2">
+        <img src="/trustaudit-logo-transparent.png" alt="TrustAudit" className="v2-brand-logo v2-brand-light" />
+        <img src="/trustaudit-logo-dark.png" alt="TrustAudit" className="v2-brand-logo v2-brand-dark" />
+        <small className="v2-brand-badge">V2</small>
+      </a>
       <button className="v2-primary v2-new" onClick={() => navigate('upload')}><Plus size={17} /> New audit</button>
       <nav aria-label="Main navigation">
-        {p.navItems.map((item, i) => <div key={item.id}>
-          {(i === 0 || i === 4 || i === 7) && <p className="v2-nav-label">{i === 0 ? 'WORKSPACE' : i === 4 ? 'OPERATIONS' : 'MANAGE'}</p>}
-          <button className={`v2-nav-item ${p.activeTab === item.id ? 'active' : ''}`} aria-current={p.activeTab === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>
-            {item.icon}<span>{item.label}</span>{item.badge !== undefined && <small>{item.badge}</small>}
-          </button>
-        </div>)}
+        {p.navItems.map((item, i) => {
+          const prevItem = p.navItems[i - 1]
+          const showHeader = !prevItem || prevItem.section !== item.section
+          return (
+            <div key={item.id}>
+              {showHeader && item.section && (
+                <p className="v2-nav-label">{item.section}</p>
+              )}
+              <button
+                className={`v2-nav-item ${p.activeTab === item.id ? 'active' : ''}`}
+                aria-current={p.activeTab === item.id ? 'page' : undefined}
+                onClick={() => navigate(item.id)}
+              >
+                {item.icon}<span>{item.label}</span>{item.badge !== undefined && <small>{item.badge}</small>}
+              </button>
+            </div>
+          )
+        })}
       </nav>
       <div className="v2-sidebar-bottom"><div className="v2-help"><FlaskConical size={18} /><strong>Explore an example</strong><p>Walk through a sample audit and its supporting evidence.</p><button onClick={p.onLoadDemo}>Open sample workspace <ArrowUpRight size={14} /></button></div><div className="v2-profile"><span>TA</span><div><strong>Audit workspace</strong><small>Document review & verification</small></div></div></div>
     </aside>

@@ -1,13 +1,17 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import {
   fetchWorkspaceV2,
+  fetchSessionsV2,
+  fetchSessionDetailV2,
   uploadDocumentsV2,
   uploadDocumentsStreamV2,
   subscribePipeline,
+  reclassifyDocumentV2,
+  type ReclassifiableDocType,
   V2_BASE,
 } from './api/api_v2'
 import { apiFetch } from './api/http'
-import type { UploadResponse } from './api/api_v2'
+import type { UploadResponse, AuditSessionSummary } from './api/api_v2'
 import type { DocumentAuditResult, StepEvent } from './types/audit'
 import { useDarkMode } from './hooks/useDarkMode'
 import { WorkspaceShell } from './components/WorkspaceShell'
@@ -19,10 +23,13 @@ import { ReconciliationSection } from './sections/ReconciliationSection'
 import { AuditLogViewer } from './sections/AuditLogViewer'
 import { ReviewQueueSection } from './sections/ReviewQueueSection'
 import { DashboardSection } from './sections/DashboardSection'
+import { SessionsSection } from './sections/SessionsSection'
 import { AuditWorkspace } from './sections/AuditWorkspace'
 import { PipelineProgress, type DocProgress } from './components/PipelineProgress'
+import { UnsupportedReviewModal } from './components/UnsupportedReviewModal'
 import { ReportSection } from './sections/ReportSection'
 import { SettingsSection } from './sections/SettingsSection'
+import { getDocumentStatus, formatDocumentScore } from './utils/documentStatus'
 import {
   LayoutDashboard,
   UploadCloud,
@@ -38,11 +45,13 @@ import {
   FileCheck,
   X,
   Radio,
-  Clock
+  Clock,
+  History
 } from 'lucide-react'
 
 type TabType =
   | 'dashboard'
+  | 'sessions'
   | 'upload'
   | 'results'
   | 'threeway'
@@ -73,6 +82,13 @@ export function AppV2() {
   )
   const [docProgressList, setDocProgressList] = useState<DocProgress[]>([])
   const [activeJobId, setActiveJobId] = useState<string | null>(() => sessionStorage.getItem('audit_active_job'))
+  const [sessions, setSessions] = useState<AuditSessionSummary[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [sessionsLoading, setSessionsLoading] = useState(false)
+  const [workspaceDocs, setWorkspaceDocs] = useState<DocumentAuditResult[]>([])
+  const [workspaceFindings, setWorkspaceFindings] = useState<any[]>([])
+  const [unsupportedQueue, setUnsupportedQueue] = useState<DocumentAuditResult[]>([])
+  const [reviewOpen, setReviewOpen] = useState(false)
   const workspaceGeneration = useRef(0)
   const stopStream = useRef<(() => void) | null>(null)
 
@@ -83,17 +99,139 @@ export function AppV2() {
     localStorage.setItem('confidence_threshold', String(t))
   }
 
-  useEffect(() => {
-    let active = true
+  const loadInitialData = useCallback(async () => {
     const generation = workspaceGeneration.current
-    fetchWorkspaceV2().then(res => {
-      if (!active || generation !== workspaceGeneration.current) return
-      setAllReportDocs(res.document_results)
-      setAllFindings(res.findings)
-      setAllDocuments(res.document_results.map(d => ({document_id: d.document_id, doc_type: d.document_type})))
-    }).catch(err => { if (active) setError(err.message) })
-    return () => { active = false }
+    try {
+      setSessionsLoading(true)
+      const [sessionsRes, wsRes] = await Promise.all([
+        fetchSessionsV2().catch(() => ({ sessions: [] })),
+        fetchWorkspaceV2().catch(() => ({ document_results: [], findings: [] })),
+      ])
+      if (generation !== workspaceGeneration.current) return
+
+      setWorkspaceDocs(wsRes.document_results)
+      setWorkspaceFindings(wsRes.findings)
+      setSessions(sessionsRes.sessions)
+
+      // If sessions exist, isolate Overview by selecting the latest completed session by default!
+      if (sessionsRes.sessions.length > 0) {
+        const latestSession = sessionsRes.sessions[0]
+        setActiveSessionId(latestSession.session_id)
+        try {
+          const detail = await fetchSessionDetailV2(latestSession.session_id)
+          if (generation !== workspaceGeneration.current) return
+          if (detail.result?.document_results && detail.result.document_results.length > 0) {
+            setAllReportDocs(detail.result.document_results)
+            setAllFindings(detail.result.findings || [])
+            setExecutiveSummary(detail.result.executive_summary || '')
+            setAllDocuments(
+              detail.result.document_results.map((d) => ({
+                document_id: d.document_id,
+                doc_type: d.document_type,
+              }))
+            )
+            setSelectedDocId(detail.result.document_results[0].document_id)
+          } else {
+            setAllReportDocs(wsRes.document_results)
+            setAllFindings(wsRes.findings)
+            setAllDocuments(
+              wsRes.document_results.map((d) => ({
+                document_id: d.document_id,
+                doc_type: d.document_type,
+              }))
+            )
+          }
+        } catch {
+          setAllReportDocs(wsRes.document_results)
+          setAllFindings(wsRes.findings)
+          setAllDocuments(
+            wsRes.document_results.map((d) => ({
+              document_id: d.document_id,
+              doc_type: d.document_type,
+            }))
+          )
+        }
+      } else {
+        setAllReportDocs(wsRes.document_results)
+        setAllFindings(wsRes.findings)
+        setAllDocuments(
+          wsRes.document_results.map((d) => ({
+            document_id: d.document_id,
+            doc_type: d.document_type,
+          }))
+        )
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to initialize workspace')
+    } finally {
+      setSessionsLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    loadInitialData()
+  }, [loadInitialData])
+
+  const loadSessions = async () => {
+    try {
+      setSessionsLoading(true)
+      const res = await fetchSessionsV2()
+      setSessions(res.sessions)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to refresh sessions')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  const handleSelectSession = async (sessionId: string) => {
+    if (sessionId === 'all') {
+      setActiveSessionId('all')
+      setAllReportDocs(workspaceDocs)
+      setAllFindings(workspaceFindings)
+      setAllDocuments(
+        workspaceDocs.map((d) => ({
+          document_id: d.document_id,
+          doc_type: d.document_type,
+        }))
+      )
+      setExecutiveSummary('Showing combined data across all historical audit sessions in the workspace.')
+      if (workspaceDocs.length > 0) setSelectedDocId(workspaceDocs[0].document_id)
+      return
+    }
+
+    setActiveSessionId(sessionId)
+    try {
+      const detail = await fetchSessionDetailV2(sessionId)
+      if (detail.result?.document_results) {
+        setAllReportDocs(detail.result.document_results)
+        setAllFindings(detail.result.findings || [])
+        setExecutiveSummary(detail.result.executive_summary || '')
+        setAllDocuments(
+          detail.result.document_results.map((d) => ({
+            document_id: d.document_id,
+            doc_type: d.document_type,
+          }))
+        )
+        if (detail.result.document_results.length > 0) {
+          setSelectedDocId(detail.result.document_results[0].document_id)
+        }
+        setUnsupportedQueue(
+          detail.result.document_results.filter((d) => getDocumentStatus(d).verdict === 'UNSUPPORTED')
+        )
+      }
+    } catch (err: any) {
+      setError(`Failed to load session ${sessionId}: ${err.message}`)
+    }
+  }
+
+  const handleOpenWorkspace = async (sessionId: string, documentId?: string) => {
+    await handleSelectSession(sessionId)
+    if (documentId) {
+      setSelectedDocId(documentId)
+    }
+    setActiveTab('results')
+  }
 
   useEffect(() => {
     if (!activeJobId) return
@@ -343,9 +481,42 @@ export function AppV2() {
       { doc_type: 'contract', document_id: 'DOC-SC-2026-0041' },
     ])
     setSelectedDocId(sampleDocs[0].document_id)
-    setExecutiveSummary(
+    const demoSummary =
       'Audit V2 evaluated 4 enterprise procurement documents against 18 deterministic compliance rules. A 3-way match price escalation of +19.4% on network cards and an uncapped liability clause in the Master Agreement were flagged for human triage.'
-    )
+    setExecutiveSummary(demoSummary)
+    setActiveSessionId('session_sample_3way')
+
+    const demoSession: AuditSessionSummary = {
+      session_id: 'session_sample_3way',
+      tenant_id: 'sample_tenant',
+      created_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      status: 'COMPLETED',
+      document_count: sampleDocs.length,
+      summary: {
+        documents_passed: sampleDocs.filter((d) => d.passed).length,
+        documents_failed: sampleDocs.filter((d) => d.audit_status === 'FAIL').length,
+        documents_incomplete: sampleDocs.filter((d) =>
+          ['INCOMPLETE', 'UNSUPPORTED'].includes(d.audit_status || '')
+        ).length,
+        documents_review_required: sampleDocs.filter((d) => d.human_review_recommended).length,
+        findings_count: sampleFindings.length,
+        executive_summary: demoSummary,
+        documents: sampleDocs.map((d) => ({
+          document_id: d.document_id,
+          document_name: d.document_name,
+          document_type: d.document_type,
+          audit_status: d.audit_status || 'PASS',
+          score: d.score,
+          passed: d.passed,
+          human_review_recommended: d.human_review_recommended,
+        })),
+      },
+    }
+    setSessions((prev) => [
+      demoSession,
+      ...prev.filter((s) => s.session_id !== 'session_sample_3way'),
+    ])
   }
 
   // Handle Drag & Drop
@@ -447,6 +618,26 @@ export function AppV2() {
     }
   }
 
+  function queueUnsupportedReview(docs: DocumentAuditResult[]) {
+    const unsupported = docs.filter((d) => getDocumentStatus(d).verdict === 'UNSUPPORTED')
+    setUnsupportedQueue(unsupported)
+    if (unsupported.length > 0) setReviewOpen(true)
+  }
+
+  async function handleConfirmUnsupportedType(documentId: string, docType: ReclassifiableDocType) {
+    const updated = await reclassifyDocumentV2(documentId, docType)
+    const applyUpdate = (docs: DocumentAuditResult[]) =>
+      docs.map((d) => (d.document_id === documentId ? { ...d, ...updated } : d))
+    setAllReportDocs((prev) => applyUpdate(prev))
+    setWorkspaceDocs((prev) => applyUpdate(prev))
+    setUploadResult((prev) =>
+      prev?.document_results
+        ? { ...prev, document_results: applyUpdate(prev.document_results) }
+        : prev
+    )
+    setUnsupportedQueue((prev) => prev.filter((d) => d.document_id !== documentId))
+  }
+
   function processUploadResult(res: UploadResponse) {
     workspaceGeneration.current += 1
     sessionStorage.removeItem('audit_active_job')
@@ -459,74 +650,137 @@ export function AppV2() {
       setIsDemo(false)
     }
     setUploadResult(res)
-    if (res.document_results?.length) {
+
+    // Isolate active session to this newly completed run!
+    const newSessionId = res.session_id || `session_${Date.now().toString(16)}`
+    setActiveSessionId(newSessionId)
+
+    if (res.document_results && res.document_results.length > 0) {
+      setAllReportDocs(res.document_results)
       setSelectedDocId(res.document_results[0].document_id)
-    }
-    if (res.documents && res.documents.length > 0) {
-      setAllDocuments((prev) => [...new Map([...prev, ...res.documents!].map(d => [d.document_id, d])).values()])
-    } else if (res.document) {
-      setAllDocuments((prev) => [...new Map([...prev, res.document].map(d => [d.document_id, d])).values()])
+      setAllDocuments(
+        res.document_results.map((d) => ({
+          document_id: d.document_id,
+          doc_type: d.document_type,
+        }))
+      )
     }
 
     if (res.findings) {
-      setAllFindings((prev) => {
-        const updated = new Set([...(res.document_results || []), ...(res.updated_document_results || [])].map(d => d.document_id))
-        return [...prev.filter(f => !updated.has(f.document_id)), ...res.findings]
-      })
+      setAllFindings(res.findings)
     }
-    if (res.document_results) {
-      setAllReportDocs((prev) => [...new Map([...prev, ...(res.updated_document_results || []), ...res.document_results].map(d => [d.document_id, d])).values()])
-    }
+
     if (res.executive_summary) {
       setExecutiveSummary(res.executive_summary)
     }
+
+    // Refresh workspace and sessions in background
+    fetchWorkspaceV2().then((ws) => {
+      setWorkspaceDocs(ws.document_results)
+      setWorkspaceFindings(ws.findings)
+    }).catch(() => {})
+
+    fetchSessionsV2().then((sRes) => {
+      setSessions(sRes.sessions)
+    }).catch(() => {})
+
     if (res.failed_uploads?.length) setError(res.failed_uploads.map(f => `${f.filename}: ${f.error}`).join('; '))
     setFiles([])
     setActiveTab('dashboard')
+    if (res.document_results) queueUnsupportedReview(res.document_results)
   }
 
   const navItems = [
-    { id: 'dashboard', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: 'upload', label: 'Upload documents', icon: <UploadCloud className="w-4 h-4" /> },
+    { id: 'dashboard', label: 'Overview', icon: <LayoutDashboard className="w-4 h-4" />, section: 'WORKSPACE' as const },
+    {
+      id: 'sessions',
+      label: 'Sessions',
+      icon: <History className="w-4 h-4" />,
+      badge: sessions.length > 0 ? sessions.length : undefined,
+      section: 'WORKSPACE' as const,
+    },
+    { id: 'upload', label: 'Upload documents', icon: <UploadCloud className="w-4 h-4" />, section: 'WORKSPACE' as const },
     {
       id: 'results',
       label: 'Document workspace',
       icon: <FileSearch className="w-4 h-4" />,
       badge: allReportDocs.length > 0 ? allReportDocs.length : undefined,
+      section: 'WORKSPACE' as const,
     },
-    { id: 'threeway', label: 'Cross-verification', icon: <Layers className="w-4 h-4" /> },
-    { id: 'recon', label: 'Reconciliation', icon: <Banknote className="w-4 h-4" /> },
+    { id: 'threeway', label: 'Cross-verification', icon: <Layers className="w-4 h-4" />, section: 'WORKSPACE' as const },
+    { id: 'recon', label: 'Reconciliation', icon: <Banknote className="w-4 h-4" />, section: 'OPERATIONS' as const },
     {
       id: 'findings',
       label: 'Findings',
       icon: <AlertTriangle className="w-4 h-4" />,
       badge: allFindings.length > 0 ? allFindings.length : undefined,
       badgeColor: 'coral',
+      section: 'OPERATIONS' as const,
     },
-    { id: 'review', label: 'Review Queue', icon: <Users className="w-4 h-4" /> },
-    { id: 'audit_log', label: 'Audit Log', icon: <Lock className="w-4 h-4" /> },
-    { id: 'reports', label: 'Reports', icon: <FileText className="w-4 h-4" /> },
-    { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
+    { id: 'review', label: 'Review Queue', icon: <Users className="w-4 h-4" />, section: 'OPERATIONS' as const },
+    { id: 'audit_log', label: 'Audit Log', icon: <Lock className="w-4 h-4" />, section: 'MANAGE' as const },
+    { id: 'reports', label: 'Reports', icon: <FileText className="w-4 h-4" />, section: 'MANAGE' as const },
+    { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" />, section: 'MANAGE' as const },
   ]
 
   return (
     <WorkspaceShell dark={dark} onToggleDark={toggle} activeTab={activeTab}
       onNavigate={(id) => setActiveTab(id as TabType)} navItems={navItems}
       isDemo={isDemo} uploading={uploading} onLoadDemo={loadSampleDataset}
-      onExitDemo={() => { setIsDemo(false); setAllDocuments([]); setAllFindings([]); setAllReportDocs([]); setSelectedDocId(null); setExecutiveSummary(''); setActiveTab('dashboard') }}>
+      onExitDemo={() => {
+        setIsDemo(false)
+        setAllDocuments([])
+        setAllFindings([])
+        setAllReportDocs([])
+        setSelectedDocId(null)
+        setExecutiveSummary('')
+        setActiveSessionId(null)
+        setSessions((prev) => prev.filter((s) => s.session_id !== 'session_sample_3way'))
+        setActiveTab('dashboard')
+        loadInitialData()
+      }}>
         {error && activeTab !== 'upload' && <div role="alert" className="v2-demo-banner"><AlertTriangle size={16} /><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss message"><X size={14} /></button></div>}
         {activeJobId && <div className="v2-demo-banner" role="status"><Clock size={16} /><span>{uploading ? 'Audit in progress. You can return to this workspace while it runs.' : 'A retained audit job is available for recovery.'}</span><button onClick={() => controlJob(uploading ? 'cancel' : 'retry')}>{uploading ? 'Cancel audit' : 'Recover / retry'}</button></div>}
+        {unsupportedQueue.length > 0 && !reviewOpen && (
+          <div className="v2-demo-banner" role="status">
+            <AlertTriangle size={16} />
+            <span>{unsupportedQueue.length} unsupported document(s) need a type — human review required.</span>
+            <button onClick={() => setReviewOpen(true)}>Review now</button>
+          </div>
+        )}
         {/* 1. Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <DashboardSection
             documents={allReportDocs}
             executiveSummary={executiveSummary}
+            activeSessionId={activeSessionId}
+            sessions={sessions}
+            onSelectSession={handleSelectSession}
+            onGoToSessions={() => setActiveTab('sessions')}
             onOpenDocument={(documentId) => {
               setSelectedDocId(documentId)
               setActiveTab('results')
             }}
             onLoadDemoData={loadSampleDataset}
             onUpload={() => setActiveTab('upload')}
+          />
+        )}
+
+        {/* 1b. Dedicated Sessions Tab */}
+        {activeTab === 'sessions' && (
+          <SessionsSection
+            sessions={sessions}
+            activeSessionId={activeSessionId}
+            isLoading={sessionsLoading}
+            onSelectSession={(sessionId) => {
+              handleSelectSession(sessionId)
+              setActiveTab('dashboard')
+            }}
+            onOpenWorkspace={(sessionId, documentId) => {
+              handleOpenWorkspace(sessionId, documentId)
+            }}
+            onNewAudit={() => setActiveTab('upload')}
+            onRefresh={loadSessions}
           />
         )}
 
@@ -748,23 +1002,33 @@ export function AppV2() {
                 {uploadResult.document_results && uploadResult.document_results.length > 0 && (
                   <div className="space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {uploadResult.document_results.map((d) => (
-                        <button
-                          key={d.document_id}
-                          onClick={() => {
-                            setSelectedDocId(d.document_id)
-                            setActiveTab('results')
-                          }}
-                          className="p-3 rounded-xl border border-border bg-surface-1 hover:border-teal-500 text-left transition-all cursor-pointer"
-                        >
-                          <span className="block truncate text-[13px] font-semibold text-ink">
-                            {d.document_name}
-                          </span>
-                          <span className="block text-[11px] text-muted font-mono mt-0.5">
-                            Score: {d.score?.toFixed(1) ?? '—'}%
-                          </span>
-                        </button>
-                      ))}
+                      {uploadResult.document_results.map((d) => {
+                        const docStatus = getDocumentStatus(d)
+                        const scoreInfo = formatDocumentScore(d)
+                        return (
+                          <button
+                            key={d.document_id}
+                            onClick={() => {
+                              setSelectedDocId(d.document_id)
+                              setActiveTab('results')
+                            }}
+                            className="p-3 rounded-xl border border-border bg-surface-1 hover:border-teal-500 text-left transition-all cursor-pointer"
+                          >
+                            <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                              <span className="block truncate text-[13px] font-semibold text-ink">
+                                {d.document_name}
+                              </span>
+                              <span className={`v2-status ${docStatus.variant} text-[9px] py-0.5 px-1.5`}>
+                                <i />
+                                {docStatus.label}
+                              </span>
+                            </div>
+                            <span className="block text-[11px] text-muted font-mono">
+                              Score: <strong className={scoreInfo.colorClass}>{scoreInfo.value}</strong>
+                            </span>
+                          </button>
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -852,6 +1116,16 @@ export function AppV2() {
         {/* 10. Settings Tab */}
         {activeTab === 'settings' && (
           <SettingsSection threshold={threshold} onThresholdChange={handleThresholdChange} />
+        )}
+        {reviewOpen && unsupportedQueue.length > 0 && (
+          <UnsupportedReviewModal
+            documents={unsupportedQueue}
+            onConfirm={handleConfirmUnsupportedType}
+            onSkip={(documentId) =>
+              setUnsupportedQueue((prev) => prev.filter((d) => d.document_id !== documentId))
+            }
+            onClose={() => setReviewOpen(false)}
+          />
         )}
     </WorkspaceShell>
   )

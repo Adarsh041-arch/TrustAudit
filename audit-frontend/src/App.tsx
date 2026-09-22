@@ -167,13 +167,8 @@ function App() {
       {/* 1. Brand Navigation Header */}
       <header className="sticky top-0 z-50 bg-surface-2 border-b border-border/80 backdrop-blur-md px-6 py-4 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="bg-teal-600 p-2 rounded-xl text-white shadow-md shadow-teal-600/20">
-            <Shield className="w-6 h-6 animate-pulse" />
-          </div>
-          <div>
-            <h1 className="text-[19px] font-bold tracking-tight bg-gradient-to-r from-teal-600 to-emerald-500 bg-clip-text text-transparent">TrustAudit 🛡️</h1>
-            <p className="text-[11px] text-muted -mt-0.5">Enterprise Compliance Platform</p>
-          </div>
+          <img src="/trustaudit-logo-transparent.png" alt="TrustAudit" className="h-9 w-auto object-contain block dark:hidden" />
+          <img src="/trustaudit-logo-dark.png" alt="TrustAudit" className="h-9 w-auto object-contain hidden dark:block" />
         </div>
 
         {/* Global Nav Tabs */}

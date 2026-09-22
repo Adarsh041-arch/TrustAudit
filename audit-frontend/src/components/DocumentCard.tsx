@@ -5,12 +5,15 @@ import { StatusBadge } from './StatusBadge'
 import { FailedRulesList } from './FailedRulesList'
 import { ContradictionList } from './ContradictionList'
 import { EvidenceTrail } from './EvidenceTrail'
+import { formatDocumentScore } from '../utils/documentStatus'
 
 interface DocumentCardProps {
   doc: DocumentAuditResult
 }
 
 export function DocumentCard({ doc }: DocumentCardProps) {
+  const scoreInfo = formatDocumentScore(doc)
+
   return (
     <FlatCard>
       <div className="flex gap-4">
@@ -29,14 +32,14 @@ export function DocumentCard({ doc }: DocumentCardProps) {
             <div className="min-w-0 mr-4">
               <p className="text-[18px] font-medium text-ink truncate">{doc.document_name}</p>
               <p className="text-[13px] text-muted mt-0.5">
-                Score: {doc.score === null ? 'Not audited' : `${doc.score.toFixed(1)}%`}
+                Score: <span className={`font-mono font-semibold ${scoreInfo.colorClass}`}>{scoreInfo.value}</span>
               </p>
             </div>
-            <StatusBadge passed={doc.passed} />
+            <StatusBadge doc={doc} />
           </div>
 
           <div className="mb-4">
-            <ScoreDisplay score={doc.score} interval={doc.prediction_interval} />
+            <ScoreDisplay doc={doc} score={doc.score} interval={doc.prediction_interval} />
           </div>
 
           <FailedRulesList rules={doc.failed_rules} />

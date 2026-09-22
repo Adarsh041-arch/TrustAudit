@@ -25,6 +25,7 @@ import { FlatCard } from '../components/FlatCard'
 import { ScoreDisplay } from '../components/ScoreDisplay'
 import { StatusBadge } from '../components/StatusBadge'
 import { CorrectionPanel } from '../components/CorrectionPanel'
+import { getDocumentStatus } from '../utils/documentStatus'
 
 interface AuditWorkspaceProps {
   documents: DocumentAuditResult[]
@@ -47,7 +48,7 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
   const [history, setHistory] = useState<ChatMessage[]>([])
   const [asking, setAsking] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [filterMode, setFilterMode] = useState<'all' | 'attention' | 'passed'>('all')
+  const [filterMode, setFilterMode] = useState<'all' | 'PASS' | 'FAIL' | 'NEEDS_REVIEW' | 'OTHER'>('all')
   const [previewModalOpen, setPreviewModalOpen] = useState(false)
   const [zoomLevel, setZoomLevel] = useState<number>(100)
   const [isBrowserFullscreen, setIsBrowserFullscreen] = useState<boolean>(false)
@@ -159,8 +160,11 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
       doc.document_type.toLowerCase().includes(searchQuery.toLowerCase())
 
     if (!matchesSearch) return false
-    if (filterMode === 'attention') return doc.human_review_recommended || !doc.passed
-    if (filterMode === 'passed') return doc.passed && !doc.human_review_recommended
+    const verdict = getDocumentStatus(doc).verdict
+    if (filterMode === 'PASS') return verdict === 'PASS'
+    if (filterMode === 'FAIL') return verdict === 'FAIL'
+    if (filterMode === 'NEEDS_REVIEW') return verdict === 'NEEDS_REVIEW'
+    if (filterMode === 'OTHER') return verdict === 'INCOMPLETE' || verdict === 'UNSUPPORTED' || verdict === 'NOT_AUDITED'
     return true
   })
 
@@ -194,36 +198,56 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
           </div>
 
           {/* Quick filter tabs */}
-          <div className="flex items-center gap-1 mb-3 p-1 rounded-lg bg-surface-1 border border-border text-[11px]">
+          <div className="flex items-center gap-1 mb-3 p-1 rounded-lg bg-surface-1 border border-border text-[11px] flex-wrap">
             <button
               onClick={() => setFilterMode('all')}
-              className={`flex-1 py-1 rounded text-center font-medium transition-all cursor-pointer ${
+              className={`px-2 py-1 rounded text-center font-medium transition-all cursor-pointer ${
                 filterMode === 'all'
-                  ? 'bg-surface-2 text-ink shadow-xs'
+                  ? 'bg-surface-2 text-ink shadow-xs font-semibold'
                   : 'text-muted hover:text-ink'
               }`}
             >
               All
             </button>
             <button
-              onClick={() => setFilterMode('attention')}
-              className={`flex-1 py-1 rounded text-center font-medium transition-all cursor-pointer ${
-                filterMode === 'attention'
-                  ? 'bg-coral-500/15 text-coral-600 dark:text-coral-400 shadow-xs'
+              onClick={() => setFilterMode('PASS')}
+              className={`px-2 py-1 rounded text-center font-medium transition-all cursor-pointer ${
+                filterMode === 'PASS'
+                  ? 'bg-teal-500/15 text-teal-700 dark:text-teal-300 shadow-xs font-semibold'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              Pass
+            </button>
+            <button
+              onClick={() => setFilterMode('FAIL')}
+              className={`px-2 py-1 rounded text-center font-medium transition-all cursor-pointer ${
+                filterMode === 'FAIL'
+                  ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300 shadow-xs font-semibold'
+                  : 'text-muted hover:text-ink'
+              }`}
+            >
+              Fail
+            </button>
+            <button
+              onClick={() => setFilterMode('NEEDS_REVIEW')}
+              className={`px-2 py-1 rounded text-center font-medium transition-all cursor-pointer ${
+                filterMode === 'NEEDS_REVIEW'
+                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 shadow-xs font-semibold'
                   : 'text-muted hover:text-ink'
               }`}
             >
               Review
             </button>
             <button
-              onClick={() => setFilterMode('passed')}
-              className={`flex-1 py-1 rounded text-center font-medium transition-all cursor-pointer ${
-                filterMode === 'passed'
-                  ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shadow-xs'
+              onClick={() => setFilterMode('OTHER')}
+              className={`px-2 py-1 rounded text-center font-medium transition-all cursor-pointer ${
+                filterMode === 'OTHER'
+                  ? 'bg-slate-300/40 text-slate-700 dark:text-slate-300 shadow-xs font-semibold'
                   : 'text-muted hover:text-ink'
               }`}
             >
-              Passed
+              Advisory/Other
             </button>
           </div>
 
@@ -250,7 +274,7 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
                       {doc.document_type.replaceAll('_', ' ')}
                     </span>
                   </div>
-                  <StatusBadge passed={doc.passed} status={doc.document_status} />
+                  <StatusBadge doc={doc} />
                 </button>
               ))
             )}
@@ -268,10 +292,10 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
                 {selected.document_type.replaceAll('_', ' ')}
               </p>
             </div>
-            <StatusBadge passed={selected.passed} status={selected.document_status} label={selected.audit_status?.replaceAll('_', ' ')} />
+            <StatusBadge doc={selected} />
           </div>
 
-          <ScoreDisplay score={selected.score} interval={selected.prediction_interval} />
+          <ScoreDisplay doc={selected} score={selected.score} interval={selected.prediction_interval} />
 
           <dl className="grid grid-cols-2 gap-2.5 mt-4 text-[12px] p-3 rounded-xl bg-surface-1 border border-border">
             <div>
@@ -337,7 +361,7 @@ export function AuditWorkspace({ documents, selectedId, onSelect }: AuditWorkspa
       <section className="space-y-5 min-w-0">
         {selected.document_id.startsWith('doc_') && <CorrectionPanel key={selected.document_id} documentId={selected.document_id} pageCount={selected.page_count} />}
         {selected.decision && <section className="v2-panel p-5" aria-label="Audit decision">
-          <h2 className="text-lg font-semibold">{selected.decision.status.replaceAll('_', ' ')}</h2>
+          <h2 className="text-lg font-semibold">{getDocumentStatus(selected).label}</h2>
           <p className="text-sm text-muted mt-2">{selected.decision.scope}</p>
           <p className="text-sm mt-3">Mandatory checks completed: {selected.decision.completed_checks} / {selected.decision.required_checks}</p>
           <ul className="mt-3 space-y-2 text-sm">{selected.decision.blockers.map((b,i) => <li key={i} className="border-l-2 border-amber-500 pl-3">{b}</li>)}</ul>

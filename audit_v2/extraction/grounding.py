@@ -73,7 +73,8 @@ class GroundingResult:
 
 
 def _norm(value: object) -> str:
-    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    cleaned = re.sub(r"(?i)<br\s*/?>", " ", str(value))
+    text = unicodedata.normalize("NFKC", cleaned).casefold()
     return "".join(ch for ch in text if ch.isalnum())
 
 
@@ -151,8 +152,8 @@ def _description_supported(candidate: str, transcript: str) -> bool:
 _HEADER_LABELS = {
     "subtotal": r"(?:sub[ -]?total|taxable\s+(?:amount|value))",
     "grand_total": (
-        r"(?:(?:grand\s+|invoice\s+|net\s+)?total"
-        r"(?:\s+invoice\s+value)?|amount\s+(?:due|payable))"
+        r"(?:(?:grand\s+|invoice\s+|net\s+|order\s+)?total"
+        r"(?:\s+(?:invoice|order)\s+value)?|total\s+(?:invoice\s+|order\s+)?value|amount\s+(?:due|payable))"
     ),
     "discount_amount": r"discount(?:\s+amount)?",
 }
@@ -165,7 +166,7 @@ def _labelled_amount(field_name: str, value: object, transcript: str) -> bool:
     matches = re.finditer(
         r"(?im)(?<![\w])"
         + _HEADER_LABELS[field_name]
-        + r"(?:[ \t]*\((?:INR|USD|EUR|GBP)\))?[ \t:|=-]*"
+        + r"(?:[ \t]*\((?:INR|USD|EUR|GBP)\))?(?:[ \t]*\r?\n)?[ \t:|=-]*"
         r"((?:(?:INR|USD|EUR|GBP|Rs\.?|₹|\$|€|£)\s*)?\d[\d,.]*)",
         transcript,
     )
@@ -216,6 +217,32 @@ def _column_context(field_name: str, row: str, transcript: str) -> str:
     return ""
 
 
+def _currency_supported(candidate: str, transcript: str) -> bool:
+    if not candidate or str(candidate).strip() == "":
+        return True
+    if _norm(candidate) in _norm(transcript):
+        return True
+    currency_symbols: dict[str, list[str]] = {
+        "USD": ["$", "usd", "dollar", "dollars"],
+        "INR": ["₹", "rs", "rs.", "inr", "rupee", "rupees"],
+        "EUR": ["€", "eur", "euro", "euros"],
+        "GBP": ["£", "gbp", "pound", "pounds"],
+        "CAD": ["$", "c$", "cad"],
+        "AUD": ["$", "a$", "aud"],
+        "JPY": ["¥", "jpy", "yen"],
+        "CNY": ["¥", "cny", "yuan"],
+    }
+    symbols = currency_symbols.get(str(candidate).strip().upper(), [])
+    norm_tr = _norm(transcript)
+    for s in symbols:
+        if s in ("$", "₹", "€", "£", "¥"):
+            if s in transcript:
+                return True
+        elif _norm(s) in norm_tr:
+            return True
+    return False
+
+
 def _supported(field_name: str, value: object, transcript: str) -> bool:
     if value is None or str(value).strip() == "":
         return True
@@ -231,6 +258,8 @@ def _supported(field_name: str, value: object, transcript: str) -> bool:
         if field_name == "expiry_date":
             return _expiry_label_supports(str(value), transcript)
         return _date_supported(str(value), transcript)
+    if field_name == "currency":
+        return _currency_supported(str(value), transcript)
     return _norm(value) in _norm(transcript)
 
 

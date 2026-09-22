@@ -25,8 +25,17 @@ def test_score_starts_at_100_and_subtracts_severity_weights():
     assert compute_document_score([]) == 100.0
     assert compute_document_score([_f(Severity.CRITICAL)]) == 60.0
     assert compute_document_score([_f(Severity.HIGH), _f(Severity.LOW)]) == 70.0
-    assert compute_document_score([_f(Severity.CRITICAL), _f(Severity.HIGH),
-                                   _f(Severity.MEDIUM), _f(Severity.LOW)]) == 20.0
+    assert (
+        compute_document_score(
+            [
+                _f(Severity.CRITICAL),
+                _f(Severity.HIGH),
+                _f(Severity.MEDIUM),
+                _f(Severity.LOW),
+            ]
+        )
+        == 20.0
+    )
 
 
 def test_score_never_goes_below_zero():

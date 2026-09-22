@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 # The cross-document check set. Single-document checks are the plain
 # workflow's job; re-running them here would double-emit findings.
 CLUSTER_CHECK_IDS = (
-    "CHK-DUP-DOC-001",
     "CHK-REF-QTY-001",
     "CHK-REF-QTY-002",
     "CHK-XDOC-QTY-001",

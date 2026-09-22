@@ -143,7 +143,8 @@ def main():
             ["2", "Server Registered Memory 64GB", "10", "180.00", "1800.00"],
         ],
         totals_pairs=[
-            ("Grand Total", "4200.00"),
+            ("Subtotal", "$ 4200.00"),
+            ("Grand Total", "$ 4200.00"),
         ],
         notes="Deliver to Receiving Dock #3. All units must include factory test certificate."
     )
@@ -170,8 +171,8 @@ def main():
         table_headers=["#", "Description", "Qty", "Unit"],
         col_widths=[30, 310, 80, 95.28],
         table_rows=[
-            ["1", "Enterprise NVMe Solid State Drive 2TB", "20", "Units"],
-            ["2", "Enterprise Registered Server RAM 64GB", "10", "Units"],
+            ["1", "Enterprise Solid State Drive 2TB", "20", "Units"],
+            ["2", "Server Registered Memory 64GB", "10", "Units"],
         ],
         totals_pairs=[
             ("Total Packages", "2 Cartons"),

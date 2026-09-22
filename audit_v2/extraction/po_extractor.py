@@ -21,6 +21,10 @@ from audit_v2.extraction.parser import (
 from audit_v2.extraction.text_extractor import TextExtractor
 
 HEADER_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
+    "subtotal": re.compile(
+        r"(?:Sub\s*Total|Subtotal)\s*:?\s*(?:\$|USD|INR|Rs\.?)?\s*([0-9,]+\.?\d*)",
+        re.IGNORECASE,
+    ),
     "vendor_name": re.compile(
         r"(?:Vendor|Supplier|From)\s*:?\s*(.+?)(?:\n|$)", re.IGNORECASE
     ),
@@ -53,7 +57,7 @@ HEADER_FIELD_PATTERNS: dict[str, re.Pattern[str]] = {
         r"(?:Delivery\s*Address|Ship\s*To)\s*:?\s*(.+?)(?:\n|$)", re.IGNORECASE
     ),
     "total_amount": re.compile(
-        r"(?:Total\s*(?:Order\s*)?Value|Total\s*Amount|Grand\s*Total)\s*:?\s*[₹$\€£]*\s*([0-9,]+\.?\d*)",
+        r"(?:Total\s*(?:Order\s*)?Value|Total\s*Amount|Grand\s*Total)\s*:?\s*(?:USD|INR|EUR|GBP|Rs\.?|[₹$\€£])*\s*([0-9,]+\.?\d*)",
         re.IGNORECASE,
     ),
     "amount_in_words": re.compile(
@@ -208,6 +212,16 @@ class POExtractor(BaseExtractor):
                         confidence=0.95,
                     )
 
+            elif field == "subtotal":
+                parsed_amt = parse_amount(raw_value, "en-IN")
+                if parsed_amt:
+                    header.subtotal = ProvenancedValue(
+                        value=str(parsed_amt),
+                        raw=raw_value,
+                        bbox=bbox,
+                        page=page,
+                        confidence=0.90,
+                    )
             elif field == "total_amount":
                 parsed_amt = parse_amount(raw_value, "en-IN")
                 if parsed_amt:
@@ -229,8 +243,9 @@ class POExtractor(BaseExtractor):
                 )
 
             elif field in ("vendor_name", "vendor_address", "delivery_address", "payment_terms"):
+                clean_value = raw_value.split("\t")[0].strip() if field == "vendor_name" else raw_value
                 setattr(header, field, ProvenancedValue(
-                    value=raw_value,
+                    value=clean_value,
                     raw=raw_value,
                     bbox=bbox,
                     page=page,

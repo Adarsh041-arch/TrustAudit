@@ -29,6 +29,7 @@ export interface ExtractionResultEntry {
 }
 
 export interface UploadResponse {
+  session_id?: string
   message: string
   document: any
   documents?: any[]
@@ -306,3 +307,95 @@ export async function fetchWorkspaceV2(): Promise<{document_results: DocumentAud
   if (!res.ok) throw new Error(`Could not load saved audits (${res.status})`)
   return res.json()
 }
+
+export interface AuditSessionDocumentBrief {
+  document_id: string
+  document_name: string
+  document_type: string
+  audit_status: string
+  score: number | null
+  passed: boolean
+  human_review_recommended?: boolean
+}
+
+export interface AuditSessionSummary {
+  session_id: string
+  tenant_id: string
+  created_at: string
+  completed_at: string | null
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED'
+  document_count: number
+  summary?: {
+    documents_passed: number
+    documents_failed: number
+    documents_incomplete: number
+    documents_review_required: number
+    findings_count: number
+    executive_summary: string
+    documents: AuditSessionDocumentBrief[]
+  }
+}
+
+export interface AuditSessionDetail {
+  session_id: string
+  tenant_id: string
+  created_at: string
+  completed_at: string | null
+  status: string
+  result: UploadResponse | null
+  documents: Array<{
+    document_id: string
+    filename: string
+    mime_type: string
+    content_hash: string
+    result: any
+  }>
+}
+
+export async function fetchSessionsV2(
+  tenantId: string = 'tenant_default',
+  limit: number = 50
+): Promise<{ sessions: AuditSessionSummary[] }> {
+  const res = await apiFetch(`${V2_BASE}/sessions?tenant_id=${encodeURIComponent(tenantId)}&limit=${limit}`)
+  if (!res.ok) throw new Error(`Failed to fetch audit sessions (${res.status})`)
+  return res.json()
+}
+
+export async function fetchSessionDetailV2(
+  sessionId: string,
+  tenantId: string = 'tenant_default'
+): Promise<AuditSessionDetail> {
+  const res = await apiFetch(`${V2_BASE}/sessions/${encodeURIComponent(sessionId)}?tenant_id=${encodeURIComponent(tenantId)}`)
+  if (!res.ok) throw new Error(`Failed to fetch audit session detail (${res.status})`)
+  return res.json()
+}
+
+export type ReclassifiableDocType =
+  | 'invoice'
+  | 'purchase_order'
+  | 'delivery_challan'
+  | 'goods_receipt_note'
+  | 'contract'
+  | 'letter'
+  | 'certificate_of_origin'
+
+export async function reclassifyDocumentV2(
+  documentId: string,
+  docType: ReclassifiableDocType,
+  tenantId: string = 'tenant_default'
+): Promise<DocumentAuditResult> {
+  const res = await apiFetch(
+    `${V2_BASE}/documents/${encodeURIComponent(documentId)}/reclassify?tenant_id=${encodeURIComponent(tenantId)}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doc_type: docType }),
+    }
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.detail || `Reclassify failed (${res.status})`)
+  }
+  return res.json()
+}
+

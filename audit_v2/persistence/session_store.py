@@ -122,7 +122,136 @@ class AuditSessionStore:
                 "WHERE s.tenant_id=? GROUP BY s.session_id ORDER BY s.created_at DESC LIMIT ?",
                 (tenant_id, min(max(limit, 1), 200)),
             ).fetchall()
-        return [dict(row) | {"result_json": None} for row in rows]
+        out = []
+        for row in rows:
+            item = dict(row)
+            raw_res = item.pop("result_json", None)
+            summary: dict[str, Any] = {}
+            if raw_res:
+                try:
+                    res_data = json.loads(raw_res)
+                    doc_results = res_data.get("document_results", [])
+                    summary = {
+                        "documents_passed": res_data.get(
+                            "documents_passed",
+                            sum(1 for d in doc_results if d.get("audit_status") == "PASS"),
+                        ),
+                        "documents_failed": res_data.get(
+                            "documents_failed",
+                            sum(1 for d in doc_results if d.get("audit_status") == "FAIL"),
+                        ),
+                        "documents_incomplete": res_data.get(
+                            "documents_incomplete",
+                            sum(1 for d in doc_results if d.get("audit_status") == "INCOMPLETE"),
+                        ),
+                        "documents_review_required": res_data.get(
+                            "documents_review_required",
+                            sum(1 for d in doc_results if d.get("audit_status") == "NEEDS_REVIEW" or d.get("human_review_recommended")),
+                        ),
+                        "documents_unsupported": res_data.get(
+                            "documents_unsupported",
+                            sum(1 for d in doc_results if d.get("audit_status") == "UNSUPPORTED"),
+                        ),
+                        "findings_count": len(res_data.get("findings", [])),
+                        "executive_summary": res_data.get("executive_summary", ""),
+                        "documents": [
+                            {
+                                "document_id": d.get("document_id"),
+                                "document_name": d.get("document_name") or d.get("filename"),
+                                "document_type": d.get("document_type"),
+                                "audit_status": d.get("audit_status"),
+                                "score": d.get("score"),
+                                "passed": d.get("passed", False),
+                                "human_review_recommended": d.get("human_review_recommended", False),
+                            }
+                            for d in doc_results
+                        ],
+                    }
+                except Exception:
+                    summary = {}
+            item["result_json"] = None
+            item["summary"] = summary
+            out.append(item)
+        return out
+
+    def get_original(
+        self, document_id: str, tenant_id: str
+    ) -> dict[str, Any] | None:
+        """Latest stored original bytes for a document, if retained.
+
+        Returns ``{"filename", "mime_type", "data"}`` or ``None`` when the
+        document was never persisted with originals (``AUDIT_STORE_ORIGINALS``
+        disabled or predates the store).
+        """
+        with self._connect() as db:
+            row = db.execute(
+                "SELECT d.filename, d.mime_type, d.original_bytes "
+                "FROM session_documents d "
+                "JOIN audit_sessions s ON s.session_id = d.session_id "
+                "WHERE d.document_id = ? AND s.tenant_id = ? "
+                "ORDER BY s.created_at DESC LIMIT 1",
+                (document_id, tenant_id),
+            ).fetchone()
+        if row is None or row["original_bytes"] is None:
+            return None
+        return {
+            "filename": row["filename"],
+            "mime_type": row["mime_type"],
+            "data": bytes(row["original_bytes"]),
+        }
+
+    def patch_document_result(
+        self, document_id: str, tenant_id: str, canonical: Any, result: Any
+    ) -> int:
+        """Overwrite a document's stored result in every session holding it.
+
+        Human-in-the-loop actions (e.g. reclassify) happen after the session
+        was frozen; without this patch a refresh would resurrect the stale
+        verdict because the UI prefers the latest session detail. Original
+        bytes, filenames, and hashes are preserved — only the canonical and
+        result payloads (plus the session's embedded ``document_results``
+        entry) are replaced. Returns the number of sessions patched.
+        """
+        canon_s = _json(canonical)
+        res_s = _json(result)
+        patched = 0
+        with self._lock, self._connect() as db:
+            rows = db.execute(
+                "SELECT d.session_id FROM session_documents d "
+                "JOIN audit_sessions s ON s.session_id = d.session_id "
+                "WHERE d.document_id = ? AND s.tenant_id = ?",
+                (document_id, tenant_id),
+            ).fetchall()
+            for item in rows:
+                session_id = item["session_id"]
+                db.execute(
+                    "UPDATE session_documents SET canonical_json = ?, result_json = ? "
+                    "WHERE session_id = ? AND document_id = ?",
+                    (canon_s, res_s, session_id, document_id),
+                )
+                srow = db.execute(
+                    "SELECT result_json FROM audit_sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                if srow is not None and srow["result_json"]:
+                    try:
+                        payload = json.loads(srow["result_json"])
+                    except ValueError:
+                        continue
+                    entries = payload.get("document_results") or []
+                    changed = False
+                    for pos, entry in enumerate(entries):
+                        if entry.get("document_id") == document_id:
+                            entries[pos] = json.loads(res_s)
+                            changed = True
+                    if changed:
+                        payload["document_results"] = entries
+                        db.execute(
+                            "UPDATE audit_sessions SET result_json = ? WHERE session_id = ?",
+                            (json.dumps(payload, default=str, ensure_ascii=False), session_id),
+                        )
+                patched += 1
+        return patched
 
     def get_session(self, session_id: str, tenant_id: str) -> dict[str, Any] | None:
         with self._connect() as db:

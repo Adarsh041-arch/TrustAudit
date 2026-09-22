@@ -50,6 +50,8 @@ def check_subtotal_tieout(ctx: CheckContext) -> CheckResult:
     doc = ctx.document
     if not doc.line_items:
         return CheckResult.skipped("CHK-ARITH-SUBTOTAL-001", "No line items")
+    if not doc.line_items:
+        return CheckResult.skipped("CHK-ARITH-SUBTOTAL-001", "No line items")
     if doc.header.subtotal is None:
         return CheckResult.skipped("CHK-ARITH-SUBTOTAL-001", "No subtotal field")
 
@@ -79,6 +81,13 @@ def check_tax_rate(ctx: CheckContext) -> CheckResult:
     """
     doc = ctx.document
     if not doc.tax_lines:
+        from audit_v2.domain.validators.reference_integrity import _is_international_doc
+
+        if _is_international_doc(doc):
+            return CheckResult.not_applicable(
+                "CHK-ARITH-TAX-001",
+                "GST tax rate not applicable for international export invoice",
+            )
         return CheckResult.skipped("CHK-ARITH-TAX-001", "No tax lines")
 
     for tax_line in doc.tax_lines:
@@ -167,9 +176,12 @@ def check_grand_total(ctx: CheckContext) -> CheckResult:
     if doc.header.grand_total is None:
         return CheckResult.skipped("CHK-ARITH-GRAND-001", "No grand_total")
     if doc.header.subtotal is None:
-        return CheckResult.skipped("CHK-ARITH-GRAND-001", "No subtotal")
-
-    subtotal = doc.header.subtotal.decimal_value
+        if doc.line_items and not doc.tax_lines:
+            subtotal = sum(Decimal(li.line_total.value) for li in doc.line_items if li.line_total)
+        else:
+            return CheckResult.skipped("CHK-ARITH-GRAND-001", "No subtotal")
+    else:
+        subtotal = doc.header.subtotal.decimal_value
     tax_total = sum(tl.total_tax.decimal_value for tl in doc.tax_lines)
     discount = Decimal("0")
     if doc.header.discount_amount is not None:

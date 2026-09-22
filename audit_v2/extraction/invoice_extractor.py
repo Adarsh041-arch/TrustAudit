@@ -262,7 +262,9 @@ class InvoiceExtractor(BaseExtractor):
 
     # Indian invoices commonly print the seller's name as the masthead with no
     # "Seller:" label, so fall back to the first non-title block on page 1.
-    _MASTHEAD_SKIP = re.compile(r"^(tax\s+invoice|invoice|proforma|bill)\b", re.IGNORECASE)
+    _MASTHEAD_SKIP = re.compile(
+        r"^(tax\s+invoice|commercial\s+invoice|invoice|proforma|bill)\b", re.IGNORECASE
+    )
 
     def _infer_vendor_name(
         self, header: DocumentHeader, blocks: list[dict[str, Any]],

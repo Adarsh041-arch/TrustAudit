@@ -53,6 +53,7 @@ from audit_v2.domain.models import (
     Finding,
     FindingStatus,
     Severity,
+    TEXT_DOC_TYPES,
 )
 from audit_v2.domain.release import apply_release_gate
 from audit_v2.domain.validation import CheckRunner
@@ -298,6 +299,189 @@ class CopilotRequest(BaseModel):
     chat_history: list[CopilotMessage] = Field(default_factory=list, max_length=6)
 
 
+class ReclassifyRequest(BaseModel):
+    doc_type: str = Field(min_length=1, max_length=40)
+
+
+#: Document types a reviewer may assign to an UNSUPPORTED document via
+#: the human-in-the-loop popup. `unknown` is excluded — it is not a target.
+RECLASSIFY_ALLOWED = {
+    "invoice",
+    "purchase_order",
+    "delivery_challan",
+    "goods_receipt_note",
+    "contract",
+    "letter",
+    "certificate_of_origin",
+}
+
+
+@app.post("/api/v2/documents/{document_id}/reclassify")
+def reclassify_document(document_id: str, payload: ReclassifyRequest) -> dict[str, Any]:
+    """Human-in-the-loop override for UNSUPPORTED documents.
+
+    The reviewer picks the true document type from the popup. Same-pipeline
+    picks (text→text, tabular→tabular) re-route the deterministic checks over
+    the existing extraction. Cross-pipeline picks (e.g. unknown→invoice)
+    re-run the full extraction pipeline (regex + OCR + VLM) forced to the new
+    type, since the text-only extraction has no line items for arithmetic
+    checks. Returns the updated (presented) document result.
+    """
+    tenant = principal().tenant_id
+    try:
+        new_type = DocumentType(payload.doc_type.strip().lower())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Unknown document type") from exc
+    if new_type.value not in RECLASSIFY_ALLOWED:
+        raise HTTPException(status_code=422, detail="Document type cannot be assigned")
+    with _PROCESS_LOCK, OPERATIONAL_STORE.transaction(tenant) as tx:
+        before = tx.load() or {}
+        _restore(tenant, before)
+        doc = DOCUMENTS_STORE.get(document_id)
+        if doc is None or doc.tenant_id != tenant:
+            raise HTTPException(status_code=404, detail="Document not found")
+        old = RESULTS_STORE.get(document_id, {})
+        old_preview = old.get("preview_base64", "")
+        old_name = old.get("document_name", document_id)
+
+        old_type = doc.doc_type
+        cross_pipeline = (old_type in TEXT_DOC_TYPES) != (new_type in TEXT_DOC_TYPES)
+        re_extracted = False
+        re_extract_note = ""
+
+        if cross_pipeline:
+            original = SESSION_STORE.get_original(document_id, tenant)
+            if original is None:
+                re_extract_note = (
+                    "Original file not retained; re-scored existing extraction only. "
+                    "Arithmetic checks may be skipped."
+                )
+            else:
+                pipeline_result = run_document_pipeline(
+                    data=original["data"],
+                    mime_type=original["mime_type"],
+                    document_id=document_id,
+                    tenant_id=tenant,
+                    filename=original["filename"],
+                    doc_type=new_type,
+                    sink=NullProgressSink(),
+                )
+                if pipeline_result.error or pipeline_result.document is None:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Re-extraction failed: {pipeline_result.error or 'no document'}",
+                    )
+                fresh = pipeline_result.document
+                fresh.document_id = document_id
+                fresh.tenant_id = tenant
+                fresh.content_hash = "sha256:" + hashlib.sha256(original["data"]).hexdigest()
+                fresh.classification_status = ClassificationStatus.CONFIRMED
+                fresh.classification_confidence = 1.0
+                fresh.classification_method = "human_override"
+                fresh.alternative_types = []
+                fresh.review_reasons.append(
+                    f"Human reclassified as {new_type.value}; requires review"
+                )
+                doc = fresh
+                DOCUMENTS_STORE[document_id] = doc
+                EVIDENCE_STORE[document_id] = pipeline_result.evidences
+                CONTRADICTION_STORE[doc.document_id] = pipeline_result.contradictions
+                CROSS_CHECK_STORE[document_id] = (
+                    pipeline_result.cross_check.model_dump(mode="json")
+                    if pipeline_result.cross_check
+                    else {"execution_status": "not_requested", "supported": None}
+                )
+                new_preview = generate_preview(original["data"], original["mime_type"])
+                if new_preview:
+                    old_preview = new_preview
+                re_extracted = True
+
+        if not re_extracted:
+            doc.doc_type = new_type
+            doc.header.doc_type = new_type
+            doc.classification_status = ClassificationStatus.CONFIRMED
+            doc.classification_confidence = 1.0
+            doc.classification_method = "human_override"
+            doc.alternative_types = []
+            if "Human reclassified" not in " ".join(doc.review_reasons):
+                doc.review_reasons.append(
+                    f"Human reclassified as {new_type.value}; requires review"
+                )
+            DOCUMENTS_STORE[document_id] = doc
+
+        all_docs = [d for d in DOCUMENTS_STORE.values() if d.tenant_id == tenant]
+        clusters = build_clusters(all_docs)
+        corpus_index = build_corpus_index(all_docs)
+        target_cluster = next(
+            (c for c in clusters if any(d.document_id == document_id for d in c.documents)),
+            None,
+        )
+        included = [
+            c.check_id
+            for c in CATALOG.checks
+            if new_type in c.applies_to and c.determinism == CheckDeterminism.DETERMINISTIC
+        ]
+        results = CHECK_RUNNER.run_all(
+            document=doc,
+            included_check_ids=included,
+            skipped_check_ids={},
+            cluster=target_cluster,
+            corpus_index=corpus_index,
+            current_date=date.today(),
+        )
+        CHECKS_STORE[document_id] = results
+
+        FINDINGS_STORE[:] = [f for f in FINDINGS_STORE if f.document_id != document_id]
+        batch_findings: list[Finding] = []
+        for r in results:
+            if r.status in (FindingStatus.PASS, FindingStatus.NOT_APPLICABLE):
+                continue
+            entry = CATALOG_BY_ID.get(r.check_id)
+            if entry is None:
+                continue
+            finding = make_finding_from_result(
+                result=r,
+                check_entry=entry,
+                document=doc,
+                ruleset_version=RULESET_VERSION,
+                prompt_version=PROMPT_VERSION,
+                model_version=_model_version_for(doc),
+                context_hash=_document_hash(doc),
+            )
+            batch_findings.append(finding)
+            FINDINGS_STORE.append(finding)
+
+        record = enrich_document(doc, old_name, FINDINGS_STORE, b"", "application/pdf", True)
+        record["preview_base64"] = old_preview
+        record["re_extracted"] = re_extracted
+        if re_extract_note:
+            record["re_extract_note"] = re_extract_note
+        RESULTS_STORE[document_id] = record
+
+        AUDIT_LOG.log(
+            entry_id=f"log_{uuid.uuid4().hex[:8]}",
+            tenant_id=tenant,
+            action="document_reclassified",
+            resource_type=Resource.DOCUMENT,
+            resource_id=document_id,
+            actor_id="reviewer",
+            payload={
+                "doc_type": new_type.value,
+                "previous_type": old_type.value,
+                "re_extracted": re_extracted,
+            },
+        )
+        tx.save(_snapshot(tenant), "document_reclassified")
+        presented = _present_result(record)
+        try:
+            SESSION_STORE.patch_document_result(
+                document_id, tenant, doc.model_dump(mode="json"), presented
+            )
+        except Exception:
+            logger.warning("Session patch failed for reclassified %s", document_id)
+        return presented
+
+
 def _document_status(doc: ExtractedDocument) -> str:
     if not doc.coverage.coverage_complete:
         return "INCOMPLETE"
@@ -478,6 +662,7 @@ def health_check() -> dict[str, Any]:
     valid, err = AUDIT_LOG.verify_chain()
     glm_health = GlmOcrGateway().health()
     qwen_health = QwenVlGateway().health()
+    active_backend = configured_vision_backend()
     active_gateway = (
         QwenVlGateway()
         if active_backend in {"qwen", "qwen_vl", "qwen_llama", "qwen_llama_cpp", "qwen_ollama", "ollama"}
@@ -632,10 +817,15 @@ def enrich_document(
         doc.classification_status == ClassificationStatus.CONFIRMED
         and doc.doc_type.value != "unknown"
     )
-    score: float | None = raw_score if classification_confirmed else None
-    risk_level = (
-        risk_level_for(raw_score, failed) if classification_confirmed else "Review Required"
-    )
+    if decision.status.value == "UNSUPPORTED":
+        score: float | None = None
+        risk_level = "Advisory (N/A)"
+    elif not classification_confirmed:
+        score = None
+        risk_level = "Review Required"
+    else:
+        score = raw_score
+        risk_level = risk_level_for(raw_score, failed)
     summary = generate_document_summary(
         doc,
         failed,
@@ -1023,13 +1213,11 @@ def _process_documents_impl(
         updated_results.append(updated)
 
     executive_summary = generate_executive_summary(enriched)
-    passed_count = sum(1 for item in enriched if item["passed"])
-    incomplete_count = sum(
-        1
-        for item in enriched
-        if item["audit_status"] in {"INCOMPLETE", "UNSUPPORTED", "NEEDS_REVIEW"}
-    )
-    review_count = sum(1 for item in enriched if item["human_review_recommended"])
+    passed_count = sum(1 for item in enriched if item["audit_status"] == "PASS")
+    failed_count = sum(1 for item in enriched if item["audit_status"] == "FAIL")
+    review_count = sum(1 for item in enriched if item["audit_status"] == "NEEDS_REVIEW")
+    incomplete_count = sum(1 for item in enriched if item["audit_status"] == "INCOMPLETE")
+    unsupported_count = sum(1 for item in enriched if item["audit_status"] == "UNSUPPORTED")
 
     first_doc = ingested_docs[0].model_dump() if ingested_docs else None
 
@@ -1050,9 +1238,10 @@ def _process_documents_impl(
         "analytics": aggregate_results(enriched),
         "executive_summary": executive_summary,
         "documents_passed": passed_count,
-        "documents_failed": sum(1 for item in enriched if item["audit_status"] == "FAIL"),
+        "documents_failed": failed_count,
         "documents_incomplete": incomplete_count,
         "documents_review_required": review_count,
+        "documents_unsupported": unsupported_count,
         "is_vlm_fallback": any(extraction_mode_of(d) != "regex" for d in ingested_docs),
         "requires_human_review": review_count > 0 or bool(failed_uploads),
     }

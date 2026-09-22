@@ -80,23 +80,40 @@ def check_invoice_date(ctx: CheckContext) -> CheckResult:
 
 
 def check_po_date(ctx: CheckContext) -> CheckResult:
-    """CHK-TEMP-PODATE-001 — PO date (order_date) is not after invoice date."""
+    """CHK-TEMP-PODATE-001 — PO date (order_date) is not after invoice date (or delivery date)."""
     doc = ctx.document
     po_date = _parse_date(doc.header.order_date)
+    if po_date is None and ctx.cluster is not None:
+        po_doc = ctx.cluster.purchase_order
+        if po_doc is not None:
+            po_date = _parse_date(po_doc.header.order_date) or _parse_date(po_doc.header.invoice_date)
     inv_date = _parse_date(doc.header.invoice_date)
     if po_date is None:
         return CheckResult.skipped("CHK-TEMP-PODATE-001", "No order_date (PO date)")
-    if inv_date is None:
-        return CheckResult.skipped("CHK-TEMP-PODATE-001", "No invoice_date")
-    if po_date > inv_date:
-        return CheckResult.failed(
-            "CHK-TEMP-PODATE-001",
-            expected=str(po_date),
-            actual=str(inv_date),
-            delta=str((po_date - inv_date).days),
-            message=f"PO date {po_date} is after invoice date {inv_date}",
-        )
-    return CheckResult.passed("CHK-TEMP-PODATE-001")
+    if inv_date is not None:
+        if po_date > inv_date:
+            return CheckResult.failed(
+                "CHK-TEMP-PODATE-001",
+                expected=str(po_date),
+                actual=str(inv_date),
+                delta=str((po_date - inv_date).days),
+                message=f"PO date {po_date} is after invoice date {inv_date}",
+            )
+        return CheckResult.passed("CHK-TEMP-PODATE-001")
+    del_date = _parse_date(doc.header.delivery_date)
+    if del_date is not None:
+        if po_date > del_date:
+            return CheckResult.failed(
+                "CHK-TEMP-PODATE-001",
+                expected=str(po_date),
+                actual=str(del_date),
+                delta=str((po_date - del_date).days),
+                message=f"PO date {po_date} is after delivery date {del_date}",
+            )
+        return CheckResult.passed("CHK-TEMP-PODATE-001")
+    if getattr(doc.doc_type, "value", str(doc.doc_type)) == "purchase_order":
+        return CheckResult.not_applicable("CHK-TEMP-PODATE-001", "Invoice date not applicable for standalone Purchase Order")
+    return CheckResult.skipped("CHK-TEMP-PODATE-001", "No invoice_date")
 
 
 def check_delivery_date(ctx: CheckContext) -> CheckResult:
@@ -107,6 +124,8 @@ def check_delivery_date(ctx: CheckContext) -> CheckResult:
     if del_date is None:
         return CheckResult.skipped("CHK-TEMP-DELIVERY-001", "No delivery_date")
     if grn_date is None:
+        if getattr(doc.doc_type, "value", str(doc.doc_type)) == "delivery_challan":
+            return CheckResult.not_applicable("CHK-TEMP-DELIVERY-001", "GRN date not applicable for goods in transit")
         return CheckResult.skipped("CHK-TEMP-DELIVERY-001", "No grn_date")
     if del_date > grn_date:
         return CheckResult.failed(

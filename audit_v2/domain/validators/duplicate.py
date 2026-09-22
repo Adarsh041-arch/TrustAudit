@@ -6,6 +6,8 @@ present (single-document run) it SKIPs — an unrunnable check never reports
 as compliant.
 """
 
+import os
+
 from audit_v2.domain.correlation import (
     business_number,
     duplicate_key,
@@ -18,6 +20,8 @@ from audit_v2.domain.models import CheckContext, CheckResult, EvidenceItem
 def check_duplicate_document(ctx: CheckContext) -> CheckResult:
     """CHK-DUP-DOC-001 — detect duplicate documents in the tenant corpus."""
     check_id = "CHK-DUP-DOC-001"
+    if os.getenv("AUDIT_DISABLE_DUPLICATE_CHECK", "false").lower() in ("1", "true", "yes"):
+        return CheckResult.not_applicable(check_id, "Duplicate check disabled")
     index = ctx.corpus_index
     if index is None:
         return CheckResult.unresolved(

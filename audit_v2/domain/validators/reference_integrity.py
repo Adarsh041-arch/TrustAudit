@@ -40,7 +40,24 @@ def _is_international_doc(doc: ExtractedDocument) -> bool:
     for li in doc.line_items:
         all_pvs.extend([li.line_total, li.unit_price])
     currencies = {pv.currency.upper() for pv in all_pvs if pv and pv.currency}
-    return bool(currencies and not currencies.intersection({"INR", "RS", "RS.", "₹"}))
+    if currencies and not currencies.intersection({"INR", "RS", "RS.", "₹"}):
+        return True
+    for pv in all_pvs:
+        if pv and pv.raw and any(s in pv.raw for s in ("$", "USD", "EUR", "GBP", "CAD")):
+            return True
+
+    vendor_parts = []
+    for attr in ("vendor_name", "vendor_address", "buyer_name", "delivery_address"):
+        val = getattr(doc.header, attr, None)
+        if val and getattr(val, "value", None):
+            vendor_parts.append(str(val.value))
+    vendor_text = " ".join(vendor_parts).upper()
+
+    us_indicators = ["USA", "AUSTIN", "TX", "SAN JOSE", "CA", "CALIFORNIA", "TEXAS", "NEW YORK", "LLC", "INC"]
+    tokens = set(re.findall(r"[A-Za-z0-9]+", vendor_text))
+    if any(ind in tokens for ind in us_indicators) and not ("INDIA" in vendor_text or "GSTIN" in vendor_text):
+        return True
+    return False
 
 
 def check_gstin_format(ctx: CheckContext) -> CheckResult:
@@ -78,6 +95,11 @@ def check_hsn_code(ctx: CheckContext) -> CheckResult:
     turnover slab; SAC is 6. Requiring 6/8 rejects legitimate 4-digit headings.
     """
     doc = ctx.document
+    if _is_international_doc(doc):
+        return CheckResult.not_applicable(
+            "CHK-REF-HSN-001",
+            "HSN/SAC code not applicable for non-GST/international document",
+        )
     for line in doc.line_items:
         if line.hsn_sac is None or not line.hsn_sac.value.strip():
             return CheckResult.failed(

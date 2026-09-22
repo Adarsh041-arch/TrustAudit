@@ -104,3 +104,45 @@ def test_currency_suffix_amount_is_grounded() -> None:
 
     assert grounded.instance.grand_total == "828.69 EUR"
     assert grounded.issues == []
+
+
+def test_currency_symbols_ground_to_iso_code() -> None:
+    from audit_v2.extraction.schemas import PurchaseOrderExtraction
+    candidate = PurchaseOrderExtraction(currency="USD", grand_total="4200.00")
+    grounded = ground_instance(candidate, "Grand Total: $ 4200.00", page=1)
+
+    assert grounded.instance.currency == "USD"
+    assert grounded.issues == []
+
+
+def test_html_br_in_ocr_table_is_supported() -> None:
+    from audit_v2.extraction.schemas import CertificateOfOriginExtraction
+    candidate = CertificateOfOriginExtraction.model_validate(
+        {
+            "goods": [
+                {
+                    "description": "Premium Basmati Rice 5% Broken",
+                    "hs_code": "10063020",
+                    "quantity": "500 MT",
+                }
+            ]
+        }
+    )
+    transcript = (
+        "| Description of Goods | HS Code | Quantity |\n"
+        "|---|---|---|\n"
+        "| Premium Basmati Rice<br>5% Broken | 10063020 | 500 MT |\n"
+    )
+    grounded = ground_instance(candidate, transcript, page=1)
+    assert len(grounded.instance.goods) == 1
+    assert grounded.instance.goods[0].description == "Premium Basmati Rice 5% Broken"
+    assert grounded.issues == []
+
+
+def test_multiline_total_value_is_grounded() -> None:
+    candidate = InvoiceExtraction(grand_total="525000.00")
+    transcript = "Total Invoice Value (USD)\n525,000.00"
+    grounded = ground_instance(candidate, transcript, page=1)
+    assert grounded.instance.grand_total == "525000.00"
+    assert grounded.issues == []
+

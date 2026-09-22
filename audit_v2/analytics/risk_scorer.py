@@ -1,4 +1,5 @@
 """Deterministic severity-weighted document scoring (ported from V1 risk_scorer)."""
+
 from __future__ import annotations
 
 from audit_v2.domain.models import Finding, Severity
@@ -13,9 +14,7 @@ SEVERITY_WEIGHTS: dict[Severity, float] = {
 
 def compute_document_score(findings: list[Finding]) -> float:
     """Score only findings whose catalog rule explicitly affects the score."""
-    penalty = sum(
-        SEVERITY_WEIGHTS.get(f.severity, 10.0) for f in findings if f.score_impact
-    )
+    penalty = sum(SEVERITY_WEIGHTS.get(f.severity, 10.0) for f in findings if f.score_impact)
     return max(0.0, 100.0 - penalty)
 
 
@@ -38,7 +37,13 @@ def risk_explanation_for(score: float, findings: list[Finding]) -> str:
         if counts[sev]:
             parts.append(f"{counts[sev]} {sev.value}")
     advisory_count = len(findings) - len(scored)
-    advisory = f" {advisory_count} recommended-field advisory finding(s) excluded from score." if advisory_count else ""
+    advisory = (
+        f" {advisory_count} recommended-field advisory finding(s) excluded from score."
+        if advisory_count
+        else ""
+    )
+    if not scored:
+        return f"Compliance score {score:.1f}%. No score-impacting failed checks.{advisory}"
     return (
         f"Compliance score {score:.1f}%. Failed checks: {', '.join(parts)}. "
         f"Resolve the listed findings and re-audit.{advisory}"
