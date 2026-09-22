@@ -1,5 +1,5 @@
-catalog_version: "1.0.0"
-created_at: "2026-07-25T17:00:00Z"
+catalog_version: "1.1.0"
+created_at: "2026-09-22T00:00:00Z"
 checks:
   # ─── Arithmetic (7 checks, all deterministic) ───────────────────────────────
   - check_id: CHK-ARITH-LINE-001
@@ -220,7 +220,7 @@ checks:
     title: GSTIN format is valid (15 chars, alphanumeric)
     category: reference_integrity
     applies_to: [invoice, purchase_order]
-    severity: high
+    severity: critical
     determinism: deterministic
     inputs: [gstin]
     tolerance: {type: none, value: "0"}
@@ -260,36 +260,45 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Certificate is missing required fields"
     requires_human_review: false
+    requirement_level: compulsory
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
+    requirement_level: compulsory
 
   - check_id: CHK-CERT-GOODS-001
     title: Certificate goods rows contain valid descriptions, HS codes, and quantities
     category: format_completeness
     applies_to: [certificate_of_origin]
-    severity: high
+    severity: low
     determinism: deterministic
     inputs: [certificate_goods]
     tolerance: {type: none, value: "0"}
     failure_message: "Certificate goods row is incomplete or has an invalid HS code"
     requires_human_review: false
+    requirement_level: recommended
+    blocking: false
+    score_impact: false
 
   - check_id: CHK-CERT-REFERENCE-001
     title: Certificate contains a complete invoice reference
     category: reference_integrity
     applies_to: [certificate_of_origin]
-    severity: medium
+    severity: critical
     determinism: deterministic
     inputs: [referenced_invoice_number, referenced_invoice_date]
     tolerance: {type: none, value: "0"}
     failure_message: "Certificate invoice reference is incomplete"
     requires_human_review: false
+    requirement_level: compulsory
 
   - check_id: CHK-FORMAT-MANDATORY-001
-    title: All mandatory fields are present
+    title: Compulsory statutory or commercial header fields are present
     category: format_completeness
     applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note, contract, letter]
     severity: critical
     determinism: deterministic
-    inputs: [document_fields]
+    inputs: [party_names, party_addresses, gstin, document_number, document_date, delivery_address, place_of_supply, reverse_charge, payment_terms, delivery_or_receipt_date, country_of_origin, issuing_authority, signature_or_seal]
     tolerance: {type: none, value: "0"}
     failure_message: "Missing mandatory field(s): {missing_fields}"
     requires_human_review: false
@@ -298,18 +307,20 @@ checks:
     title: Line items have required sub-fields (description, qty, rate, amount)
     category: format_completeness
     applies_to: [invoice, purchase_order, delivery_challan, goods_receipt_note]
-    severity: high
+    severity: critical
     determinism: deterministic
     inputs: [line_items]
     tolerance: {type: none, value: "0"}
     failure_message: "Line {n} missing required field: {field}"
     requires_human_review: false
+    requirement_level: compulsory
+    requirement_level: compulsory
 
   - check_id: CHK-FORMAT-TAXBREAKDOWN-001
     title: Tax breakdown is present with rate, taxable value, and amount
     category: format_completeness
     applies_to: [invoice]
-    severity: high
+    severity: critical
     determinism: deterministic
     inputs: [tax_lines]
     tolerance: {type: none, value: "0"}
@@ -331,7 +342,7 @@ checks:
     title: Amount in words matches numeric grand total
     category: format_completeness
     applies_to: [invoice]
-    severity: medium
+    severity: critical
     determinism: model_assisted
     inputs: [amount_in_words, grand_total]
     tolerance: {type: none, value: "0"}
@@ -349,17 +360,20 @@ checks:
     tolerance: {type: none, value: "0"}
     failure_message: "Line {n}: invoiced qty {inv_qty} > PO qty {po_qty}"
     requires_human_review: false
+    requirement_level: compulsory
+    requirement_level: compulsory
 
   - check_id: CHK-REF-QTY-002
     title: Received quantity does not exceed delivery challan quantity
     category: reference_integrity
     applies_to: [goods_receipt_note]
-    severity: high
+    severity: critical
     determinism: deterministic
     inputs: [grn_items, dc_items]
     tolerance: {type: none, value: "0"}
     failure_message: "Line {n}: received qty {recv_qty} > DC qty {dc_qty}"
     requires_human_review: false
+    requirement_level: compulsory
 
   # ─── Cross-document / corpus (5 checks, deterministic, Phase 7) ─────────────
   # These SKIP on single-document runs and execute when the workflow provides

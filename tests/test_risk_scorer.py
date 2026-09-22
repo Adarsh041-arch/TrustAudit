@@ -6,7 +6,7 @@ from audit_v2.analytics.risk_scorer import (
 from audit_v2.domain.models import Finding, FindingStatus, Severity
 
 
-def _f(sev: Severity) -> Finding:
+def _f(sev: Severity, *, score_impact: bool = True) -> Finding:
     return Finding(
         finding_id="f1",
         check_id="CHK-ARITH-LINE-001",
@@ -14,6 +14,7 @@ def _f(sev: Severity) -> Finding:
         tenant_id="t",
         status=FindingStatus.FAIL,
         severity=sev,
+        score_impact=score_impact,
         message="bad",
         decision_fingerprint="fp",
         ruleset_version="v2.0",
@@ -31,6 +32,13 @@ def test_score_starts_at_100_and_subtracts_severity_weights():
 def test_score_never_goes_below_zero():
     findings = [_f(Severity.CRITICAL)] * 5
     assert compute_document_score(findings) == 0.0
+
+
+def test_recommended_findings_do_not_change_score_or_risk_level():
+    advisory = _f(Severity.CRITICAL, score_impact=False)
+    assert compute_document_score([advisory]) == 100.0
+    assert risk_level_for(100.0, [advisory]) == "Low Risk"
+    assert "excluded from score" in risk_explanation_for(100.0, [advisory])
 
 
 def test_risk_level_rules():

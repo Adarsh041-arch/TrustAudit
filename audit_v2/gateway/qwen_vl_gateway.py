@@ -1,4 +1,4 @@
-"""Local Qwen2.5-VL gateway for Ollama's native chat API."""
+"""Local Qwen vision gateway supporting both llama.cpp (Qwen 3.5) and Ollama."""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from audit_v2.gateway.vlm_gateway import ModelResponse
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "http://127.0.0.1:11434"
-DEFAULT_MODEL = "qwen2.5vl:3b"
+DEFAULT_BASE_URL = "http://127.0.0.1:8080/v1"
+DEFAULT_MODEL = r"C:\llama-cpp\models\Qwen3.5-4B-Q4_K_M.gguf"
 TRANSCRIPTION_PROMPT = (
     "Transcribe every visible word and table value in this document exactly. "
     "Preserve reading order and table relationships. Do not calculate, infer, "
@@ -45,7 +45,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 def _prepare_image(image: bytes) -> bytes:
-    """Bound visual tokens for the 4K context while preserving the 200-DPI source."""
+    """Bound visual tokens for the context while preserving the 200-DPI source."""
     max_edge = max(512, _env_int("QWEN_VL_MAX_IMAGE_EDGE", 1200))
     try:
         with Image.open(BytesIO(image)) as opened:
@@ -57,15 +57,11 @@ def _prepare_image(image: bytes) -> bytes:
             resized.save(output, format="JPEG", quality=90, optimize=True)
             return output.getvalue()
     except Exception:
-        # Tests and callers may provide opaque image bytes. Let Ollama produce
-        # the authoritative decoding error rather than hiding it here.
         return image
 
 
 class QwenVlGateway:
-    """Deterministic local vision requests through Ollama."""
-
-    backend = "qwen_ollama"
+    """Deterministic local vision requests through llama.cpp or Ollama."""
 
     def __init__(
         self,
@@ -74,6 +70,7 @@ class QwenVlGateway:
         model: str | None = None,
         timeout: int | None = None,
         max_retries: int | None = None,
+        backend: str | None = None,
     ) -> None:
         self.base_url = (base_url or (os.getenv("QWEN_VL_BASE_URL") or DEFAULT_BASE_URL)).rstrip(
             "/"
@@ -88,21 +85,61 @@ class QwenVlGateway:
         self.context_length = _env_int("QWEN_VL_CONTEXT_LENGTH", 4096)
         self.network_call_count = 0
         self.last_cache_hit = False
+        self._backend = backend
+
+    @property
+    def is_openai_compatible(self) -> bool:
+        """True if connecting to an OpenAI-compatible server like llama.cpp (/v1)."""
+        return "/v1" in self.base_url or self.base_url.endswith("/v1")
+
+    @property
+    def backend(self) -> str:
+        if self._backend:
+            return self._backend
+        return "qwen_llama" if self.is_openai_compatible else "qwen_ollama"
+
+    @backend.setter
+    def backend(self, val: str) -> None:
+        self._backend = val
 
     def health(self) -> dict[str, Any]:
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=2)
-            response.raise_for_status()
-            models = [
-                str(item.get("name") or item.get("model"))
-                for item in response.json().get("models", [])
-            ]
-            return {
-                "available": self.model in models,
-                "base_url": self.base_url,
-                "configured_model": self.model,
-                "loaded_models": models,
-            }
+            if self.is_openai_compatible:
+                response = requests.get(f"{self.base_url}/models", timeout=2)
+                response.raise_for_status()
+                data = response.json()
+                loaded_models: list[str] = []
+                for item in data.get("data", []):
+                    if item.get("id"):
+                        loaded_models.append(str(item["id"]))
+                for item in data.get("models", []):
+                    name = item.get("name") or item.get("model")
+                    if name and str(name) not in loaded_models:
+                        loaded_models.append(str(name))
+                is_avail = (
+                    self.model in loaded_models
+                    or any(self.model.endswith(m) or m.endswith(self.model) for m in loaded_models)
+                    or bool(loaded_models)
+                )
+                return {
+                    "available": is_avail,
+                    "base_url": self.base_url,
+                    "configured_model": self.model,
+                    "loaded_models": loaded_models,
+                }
+            else:
+                response = requests.get(f"{self.base_url}/api/tags", timeout=2)
+                response.raise_for_status()
+                models = [
+                    str(item.get("name") or item.get("model"))
+                    for item in response.json().get("models", [])
+                ]
+                return {
+                    "available": self.model in models,
+                    "base_url": self.base_url,
+                    "configured_model": self.model,
+                    "loaded_models": models,
+                }
         except Exception as exc:
             return {
                 "available": False,
@@ -143,26 +180,63 @@ class QwenVlGateway:
         if len(images) != 1:
             raise ValueError("Qwen page extraction requires exactly one image")
 
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "stream": False,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": [base64.b64encode(_prepare_image(images[0])).decode("ascii")],
-                }
-            ],
-            "options": {
+        prepared_img = _prepare_image(images[0])
+        img_b64 = base64.b64encode(prepared_img).decode("ascii")
+
+        if self.is_openai_compatible:
+            url = f"{self.base_url}/chat/completions"
+            payload: dict[str, Any] = {
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"},
+                            },
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
                 "temperature": 0,
                 "top_p": 0.00001,
                 "top_k": 1,
-                "num_ctx": self.context_length,
-                "num_predict": max_tokens,
-            },
-        }
-        if response_schema is not None:
-            payload["format"] = response_schema
+                "max_tokens": max_tokens,
+                "stream": False,
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+            if response_schema is not None:
+                payload["response_format"] = {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "document_extraction",
+                        "strict": True,
+                        "schema": response_schema,
+                    },
+                }
+        else:
+            url = f"{self.base_url}/api/chat"
+            payload = {
+                "model": self.model,
+                "stream": False,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": prompt,
+                        "images": [img_b64],
+                    }
+                ],
+                "options": {
+                    "temperature": 0,
+                    "top_p": 0.00001,
+                    "top_k": 1,
+                    "num_ctx": self.context_length,
+                    "num_predict": max_tokens,
+                },
+            }
+            if response_schema is not None:
+                payload["format"] = response_schema
 
         last_error: Exception | None = None
         started = time.monotonic()
@@ -170,30 +244,43 @@ class QwenVlGateway:
             for attempt in range(self.max_retries + 1):
                 try:
                     self.network_call_count += 1
-                    response = requests.post(
-                        f"{self.base_url}/api/chat", json=payload, timeout=self.timeout
-                    )
+                    response = requests.post(url, json=payload, timeout=self.timeout)
                     if not response.ok:
                         detail = response.text.strip().replace("\n", " ")[:500]
                         raise RuntimeError(
-                            f"Ollama HTTP {response.status_code}: {detail or 'no response body'}"
+                            f"HTTP {response.status_code}: {detail or 'no response body'}"
                         )
                     data = response.json()
-                    content = data["message"].get("content")
+
+                    if "choices" in data and data["choices"]:
+                        msg = data["choices"][0].get("message", {})
+                        content = msg.get("content")
+                        if not content and msg.get("reasoning_content"):
+                            content = msg.get("reasoning_content")
+                    elif "message" in data:
+                        content = data["message"].get("content")
+                    else:
+                        content = data.get("content")
+
                     if not content:
                         raise ValueError("Qwen returned empty content")
                     if data.get("done_reason") == "length":
                         raise ValueError("Qwen response was truncated by the context/output limit")
+
+                    usage = data.get("usage", {})
+                    tokens_prompt = int(usage.get("prompt_tokens", data.get("prompt_eval_count", 0)))
+                    tokens_completion = int(usage.get("completion_tokens", data.get("eval_count", 0)))
                     return ModelResponse(
                         content=str(content),
                         model_version=str(data.get("model", self.model)),
-                        tokens_prompt=int(data.get("prompt_eval_count", 0)),
-                        tokens_completion=int(data.get("eval_count", 0)),
+                        tokens_prompt=tokens_prompt,
+                        tokens_completion=tokens_completion,
                         latency_ms=(time.monotonic() - started) * 1000,
                     )
                 except (
                     requests.RequestException,
                     KeyError,
+                    IndexError,
                     RuntimeError,
                     ValueError,
                 ) as exc:

@@ -91,6 +91,11 @@
     "severity": {
       "$ref": "#/$defs/Severity"
     },
+    "score_impact": {
+      "default": true,
+      "title": "Score Impact",
+      "type": "boolean"
+    },
     "expected": {
       "anyOf": [
         {

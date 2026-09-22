@@ -79,7 +79,7 @@ python evaluation/evaluate_recon.py --batch data/recon
 
 - Python 3.11 or newer
 - Node.js and npm
-- [Ollama](https://ollama.com/) with `qwen2.5vl:3b`
+- Local model server: [llama.cpp](https://github.com/ggml-org/llama.cpp) with `Qwen3.5-4B-Q4_K_M.gguf` (and `mmproj-F16.gguf`) or [Ollama](https://ollama.com/)
 - Docker Desktop only if you want the durable Postgres, MinIO, and Temporal stack
 
 Open the repository in VS Code and use separate PowerShell terminals.
@@ -97,12 +97,16 @@ Copy-Item .env.example .env -ErrorAction SilentlyContinue
 
 ### 2. Start local vision
 
+With llama.cpp:
+```powershell
+C:\llama-cpp\llama-server.exe -m C:\llama-cpp\models\Qwen3.5-4B-Q4_K_M.gguf --mmproj C:\llama-cpp\models\mmproj-F16.gguf --port 8080 -ngl 99 -c 32768
+```
+
+Alternatively, with Ollama:
 ```powershell
 ollama pull qwen2.5vl:3b
 ollama serve
 ```
-
-On Windows, the Ollama desktop application may already run the service. If `ollama serve` says the address is in use, keep the existing service and continue.
 
 ### 3. Start the V2 API
 
@@ -137,9 +141,9 @@ python -m audit_v2.orchestration.worker
 Copy `.env.example` to `.env`. Safe local defaults are already provided:
 
 ```dotenv
-V2_VISION_BACKEND=qwen_ollama
-QWEN_VL_BASE_URL=http://127.0.0.1:11434
-QWEN_VL_MODEL=qwen2.5vl:3b
+V2_VISION_BACKEND=qwen
+QWEN_VL_BASE_URL=http://127.0.0.1:8080/v1
+QWEN_VL_MODEL=C:\llama-cpp\models\Qwen3.5-4B-Q4_K_M.gguf
 QWEN_VL_CONTEXT_LENGTH=4096
 QWEN_VL_MAX_IMAGE_EDGE=1200
 V2_EXTRACTION_POLICY=balanced
@@ -147,7 +151,7 @@ V2_CROSS_CHECK_MODE=on_review
 V2_SUMMARY_MODE=deterministic
 ```
 
-GLM-OCR through llama.cpp remains available by setting `V2_VISION_BACKEND=glm_ocr`. NVIDIA configuration is optional and never required for deterministic audit results. Never commit `.env` or API keys.
+GLM-OCR through llama.cpp remains available by setting `V2_VISION_BACKEND=glm_ocr`. Ollama remains supported by setting `QWEN_VL_BASE_URL=http://127.0.0.1:11434`. NVIDIA configuration is optional and never required for deterministic audit results. Never commit `.env` or API keys.
 
 ## Repository map
 

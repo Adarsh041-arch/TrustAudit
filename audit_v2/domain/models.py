@@ -177,6 +177,8 @@ class CheckCatalogEntry(BaseModel):
     requires_human_review: bool = False
     ruleset_version: str | None = None
     blocking: bool = True
+    requirement_level: str = Field(default="control", pattern="^(compulsory|recommended|control)$")
+    score_impact: bool = True
 
 
 class CheckCatalog(BaseModel):
@@ -357,6 +359,7 @@ class Finding(BaseModel):
     tenant_id: str
     status: FindingStatus
     severity: Severity
+    score_impact: bool = True
     expected: str | None = None
     actual: str | None = None
     delta: str | None = None

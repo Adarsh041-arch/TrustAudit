@@ -94,6 +94,7 @@ def make_finding_from_result(
         tenant_id=document.tenant_id,
         status=result.status,
         severity=check_entry.severity,
+        score_impact=check_entry.score_impact,
         expected=result.expected,
         actual=result.actual,
         delta=result.delta,

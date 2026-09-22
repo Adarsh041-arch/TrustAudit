@@ -93,6 +93,7 @@ def test_health_and_unavailable(monkeypatch) -> None:
         "audit_v2.gateway.qwen_vl_gateway.requests.get",
         lambda *args, **kwargs: _Response({
             "models": [{"name": "qwen2.5vl:3b"}],
+            "data": [{"id": r"C:\llama-cpp\models\Qwen3.5-4B-Q4_K_M.gguf"}],
         }),
     )
     assert QwenVlGateway().health()["available"] is True
@@ -104,3 +105,48 @@ def test_health_and_unavailable(monkeypatch) -> None:
         "audit_v2.gateway.qwen_vl_gateway.requests.get", unavailable
     )
     assert QwenVlGateway().health()["available"] is False
+
+
+def test_openai_compatible_llama_cpp_extraction(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def post(url: str, json: dict[str, Any], timeout: int) -> _Response:
+        captured.update({"url": url, "json": json, "timeout": timeout})
+        return _Response({
+            "model": r"C:\llama-cpp\models\Qwen3.5-4B-Q4_K_M.gguf",
+            "choices": [{"message": {"content": '{"invoice_number":"INV-123"}'}}],
+            "usage": {"prompt_tokens": 25, "completion_tokens": 12},
+        })
+
+    monkeypatch.setattr("audit_v2.gateway.qwen_vl_gateway.requests.post", post)
+    gateway = QwenVlGateway(base_url="http://127.0.0.1:8080/v1", max_retries=0)
+    assert gateway.is_openai_compatible is True
+    assert gateway.backend == "qwen_llama"
+
+    schema = {"type": "object", "properties": {"invoice_number": {"type": "string"}}}
+    response = gateway.extract_limited(
+        [b"fake_jpeg_bytes"],
+        "Extract invoice details",
+        "tenant-llama",
+        response_schema=schema,
+        max_tokens=256,
+    )
+
+    assert response.content == '{"invoice_number":"INV-123"}'
+    assert response.tokens_prompt == 25
+    assert response.tokens_completion == 12
+    assert captured["url"] == "http://127.0.0.1:8080/v1/chat/completions"
+
+    payload = captured["json"]
+    assert payload["temperature"] == 0
+    assert payload["max_tokens"] == 256
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    assert payload["response_format"]["json_schema"]["schema"] == schema
+    messages = payload["messages"]
+    assert len(messages) == 1
+    content_items = messages[0]["content"]
+    assert content_items[0]["type"] == "image_url"
+    assert content_items[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert content_items[1]["type"] == "text"
+    assert content_items[1]["text"] == "Extract invoice details"
+

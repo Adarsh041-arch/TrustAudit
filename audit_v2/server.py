@@ -104,7 +104,7 @@ def extraction_mode_of(doc: ExtractedDocument) -> str:
     version = doc.extractor_version
     if version.startswith("dual"):
         return "dual"
-    if version.startswith(("glm_ocr", "qwen_ollama")):
+    if version.startswith(("glm_ocr", "qwen")):
         return "vlm_text" if doc.doc_type.value in {"contract", "letter"} else "vlm"
     if version.startswith("vlm_text"):
         return "vlm_text"
@@ -478,9 +478,10 @@ def health_check() -> dict[str, Any]:
     valid, err = AUDIT_LOG.verify_chain()
     glm_health = GlmOcrGateway().health()
     qwen_health = QwenVlGateway().health()
-    active_backend = configured_vision_backend()
     active_gateway = (
-        QwenVlGateway() if active_backend in {"qwen", "qwen_ollama", "ollama"} else GlmOcrGateway()
+        QwenVlGateway()
+        if active_backend in {"qwen", "qwen_vl", "qwen_llama", "qwen_llama_cpp", "qwen_ollama", "ollama"}
+        else GlmOcrGateway()
     )
     return {
         "status": "OK",

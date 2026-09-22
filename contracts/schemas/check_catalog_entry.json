@@ -66,6 +66,16 @@
     "requires_human_review": {
       "type": "boolean"
     },
+    "requirement_level": {
+      "type": "string",
+      "enum": ["compulsory", "recommended", "control"]
+    },
+    "score_impact": {
+      "type": "boolean"
+    },
+    "blocking": {
+      "type": "boolean"
+    },
     "ruleset_version": {
       "type": ["string", "null"],
       "pattern": "^(rs_[0-9_]+|null)?$"
