@@ -51,7 +51,7 @@ export const STATUS_MAP: Record<AuditVerdict, Omit<DocumentStatus, 'verdict'>> =
     label: 'Unsupported',
     variant: 'unsupported',
     badgeBg: 'bg-slate-100 text-slate-600 border border-slate-300 dark:bg-slate-700/40 dark:text-slate-400 dark:border-slate-600',
-    description: 'Document type is advisory (e.g. contract, letter) and does not require clearance checks.',
+    description: 'Document type could not be recognized, so no clearance checks apply.',
   },
   NOT_AUDITED: {
     label: 'Not Audited',
@@ -119,7 +119,7 @@ export function formatDocumentScore(doc?: Partial<DocumentAuditResult> | { score
     return {
       value: 'N/A',
       colorClass: 'text-slate-500 dark:text-slate-400',
-      label: 'Advisory (N/A)',
+      label: 'Unrecognized (N/A)',
       isNumeric: false,
     }
   }

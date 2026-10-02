@@ -44,6 +44,7 @@ class StateTransaction:
             "corrections",
             "jobs",
             "cancelled_operations",
+            "rule_configuration",
         ):
             if section in existing and section not in value:
                 value = {**value, section: existing[section]}

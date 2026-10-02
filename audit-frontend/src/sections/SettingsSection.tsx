@@ -8,6 +8,7 @@ import {
 import { fetchEvalV2 } from '../api/api_v2'
 import type { EvalResponse } from '../api/api_v2'
 import { FlatCard } from '../components/FlatCard'
+import { RuleManager } from './RuleManager'
 
 interface SettingsSectionProps {
   threshold: number
@@ -44,6 +45,7 @@ export function SettingsSection({ threshold, onThresholdChange }: SettingsSectio
 
   return (
     <div className="space-y-6">
+      <RuleManager />
       <FlatCard>
         <h3 className="text-[17px] font-bold text-ink">Workspace connection</h3>
         <p className="text-sm text-muted my-2">For a hosted workspace, enter the access token issued by your administrator. It is kept for this browser session.</p>

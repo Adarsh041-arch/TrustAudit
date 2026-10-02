@@ -164,6 +164,41 @@ class ToleranceSpec(BaseModel):
 # ─── Check Catalog ───────────────────────────────────────────────────────────
 
 
+class CustomRuleDefinition(BaseModel):
+    field_path: str = Field(
+        min_length=3,
+        max_length=100,
+        pattern=r"^(header|line_items|tax_lines|certificate_goods|document)\.[a-z_]+$",
+    )
+    operator: str = Field(
+        pattern="^(is_present|equals|not_equals|contains|starts_with|ends_with|greater_than|less_than|between)$"
+    )
+    expected_value: str | None = Field(default=None, max_length=500)
+    second_value: str | None = Field(default=None, max_length=500)
+    quantifier: str = Field(default="all", pattern="^(all|any)$")
+    case_sensitive: bool = False
+
+    @model_validator(mode="after")
+    def validate_operands(self) -> CustomRuleDefinition:
+        if self.operator != "is_present" and not (self.expected_value or "").strip():
+            raise ValueError("This operator requires an expected value")
+        if self.operator == "between" and not (self.second_value or "").strip():
+            raise ValueError("Between requires both lower and upper values")
+        from audit_v2.domain.validators.custom import ALLOWED_FIELDS
+
+        if self.field_path not in ALLOWED_FIELDS:
+            raise ValueError("Select a supported document field")
+        if self.operator in {"greater_than", "less_than", "between"}:
+            try:
+                lower = Decimal(self.expected_value or "")
+                upper = Decimal(self.second_value or "") if self.operator == "between" else lower
+                if not lower.is_finite() or not upper.is_finite() or upper < lower:
+                    raise ValueError("Use finite numeric bounds in ascending order")
+            except InvalidOperation as exc:
+                raise ValueError("Numeric comparisons require numeric values") from exc
+        return self
+
+
 class CheckCatalogEntry(BaseModel):
     check_id: str = Field(pattern=r"^CHK-[A-Z]+-[A-Z]+-[0-9]{3}$")
     title: str
@@ -179,6 +214,10 @@ class CheckCatalogEntry(BaseModel):
     blocking: bool = True
     requirement_level: str = Field(default="control", pattern="^(compulsory|recommended|control)$")
     score_impact: bool = True
+    score_weight: float | None = Field(default=None, ge=0.0, le=100.0)
+    enabled: bool = True
+    source: str = Field(default="built_in", pattern="^(built_in|custom)$")
+    custom_definition: CustomRuleDefinition | None = None
 
 
 class CheckCatalog(BaseModel):
@@ -360,6 +399,7 @@ class Finding(BaseModel):
     status: FindingStatus
     severity: Severity
     score_impact: bool = True
+    score_weight: float | None = Field(default=None, ge=0.0, le=100.0)
     expected: str | None = None
     actual: str | None = None
     delta: str | None = None

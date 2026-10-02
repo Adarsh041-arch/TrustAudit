@@ -14,7 +14,11 @@ SEVERITY_WEIGHTS: dict[Severity, float] = {
 
 def compute_document_score(findings: list[Finding]) -> float:
     """Score only findings whose catalog rule explicitly affects the score."""
-    penalty = sum(SEVERITY_WEIGHTS.get(f.severity, 10.0) for f in findings if f.score_impact)
+    penalty = sum(
+        f.score_weight if f.score_weight is not None else SEVERITY_WEIGHTS.get(f.severity, 10.0)
+        for f in findings
+        if f.score_impact
+    )
     return max(0.0, 100.0 - penalty)
 
 

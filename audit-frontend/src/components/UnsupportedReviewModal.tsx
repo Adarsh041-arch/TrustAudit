@@ -130,7 +130,8 @@ export function UnsupportedReviewModal({ documents, onConfirm, onSkip, onClose }
             <p className="text-[11.5px] text-muted mt-1.5">
               Choosing a type re-runs the checks for that type. If the type needs a different
               extraction (e.g. photo → invoice), the document is fully re-read including vision —
-              this takes longer. Advisory types (contract, letter) stay unsupported by policy unless a check fails.
+              this takes longer. Contracts and letters are fully audited; only documents that still
+              match no known type stay unsupported.
             </p>
           </div>
 

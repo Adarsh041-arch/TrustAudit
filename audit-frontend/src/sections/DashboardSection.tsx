@@ -14,21 +14,17 @@ import {
   X,
   Clock,
   History,
-  ShieldCheck,
-  ShieldAlert,
   AlertCircle,
-  HelpCircle,
 } from 'lucide-react'
 import type { DocumentAuditResult } from '../types/audit'
 import type { AuditSessionSummary } from '../api/api_v2'
 import { getDocumentStatus } from '../utils/documentStatus'
-import type { AuditVerdict } from '../utils/documentStatus'
 
 type FilterKey = 'all' | 'PASS' | 'FAIL' | 'NEEDS_REVIEW' | 'INCOMPLETE' | 'UNSUPPORTED'
 
 function nextAction(d: DocumentAuditResult) {
   const status = getDocumentStatus(d)
-  if (status.verdict === 'UNSUPPORTED') return 'Advisory document — no mandatory checks required'
+  if (status.verdict === 'UNSUPPORTED') return 'Unrecognized document — no checks apply'
   if (status.verdict === 'INCOMPLETE') return 'Check missing or unreadable pages/evidence'
   return (
     d.failed_rules[0]?.recommendation ||
@@ -145,14 +141,15 @@ export function DashboardSection({
     },
   ]
 
-  const filterTabs: Array<{ id: FilterKey; label: string; count: number }> = [
+  const allFilterTabs: Array<{ id: FilterKey; label: string; count: number }> = [
     { id: 'all', label: 'All documents', count: counts.all },
     { id: 'PASS', label: 'Pass', count: counts.pass },
     { id: 'FAIL', label: 'Fail', count: counts.fail },
     { id: 'NEEDS_REVIEW', label: 'Needs Review', count: counts.needs_review },
     { id: 'INCOMPLETE', label: 'Incomplete', count: counts.incomplete },
     { id: 'UNSUPPORTED', label: 'Unsupported', count: counts.unsupported },
-  ].filter((t) => t.id === 'all' || t.count > 0 || t.id === 'PASS' || t.id === 'FAIL')
+  ]
+  const filterTabs = allFilterTabs.filter((t) => t.id === 'all' || t.count > 0 || t.id === 'PASS' || t.id === 'FAIL')
 
   return (
     <div className="v2-overview">

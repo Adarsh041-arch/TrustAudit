@@ -43,6 +43,8 @@ from audit_v2.domain.decision import decide_document
 from audit_v2.domain.evidence import Contradiction, EvidenceNature, PipelineEvidence
 from audit_v2.domain.finding_generator import _document_hash, make_finding_from_result
 from audit_v2.domain.models import (
+    TEXT_DOC_TYPES,
+    CheckCatalogEntry,
     CheckDeterminism,
     CheckResult,
     ClassificationStatus,
@@ -53,9 +55,9 @@ from audit_v2.domain.models import (
     Finding,
     FindingStatus,
     Severity,
-    TEXT_DOC_TYPES,
 )
 from audit_v2.domain.release import apply_release_gate
+from audit_v2.domain.rule_configuration import effective_checks, normalize_rule_configuration
 from audit_v2.domain.validation import CheckRunner
 from audit_v2.extraction.preview import generate_preview
 from audit_v2.gateway.glm_ocr_gateway import GlmOcrGateway
@@ -89,11 +91,13 @@ from audit_v2.reporting.report_builders import generate_docx_report, generate_pd
 from audit_v2.security.auth import authenticate, principal, require_reviewer
 from audit_v2.security.corrections import router as corrections_router
 from audit_v2.security.injection_detector import scan_text
+from audit_v2.security.rules import router as rules_router
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 CATALOG = load_catalog()
 CATALOG_BY_ID = {c.check_id: c for c in CATALOG.checks}
+CHECK_RUNNER = CheckRunner(CATALOG.checks)
 
 #: Synthetic check id for extraction disagreements — not a catalog check; it
 #: represents "two extraction methods disagreed" and routes to human review.
@@ -133,6 +137,26 @@ def _disagreement_finding(doc: ExtractedDocument, tenant_id: str) -> Finding | N
         decision_fingerprint="deterministic:extractor-agreement",
         ruleset_version="ruleset_v2.0",
         requires_human_review=True,
+    )
+
+
+def _disagreement_evidence(doc: ExtractedDocument) -> PipelineEvidence | None:
+    """One trail entry spelling out what the two extractors disagreed on."""
+    if not doc.extraction_disagreements:
+        return None
+    fields = sorted(doc.extraction_disagreements)
+    detail = "; ".join(f"{f}: {doc.extraction_disagreements[f]}" for f in fields)
+    return PipelineEvidence(
+        document_id=doc.document_id,
+        nature=EvidenceNature.EXTRACTED_FIELDS,
+        source="merge",
+        payload={
+            "disagreed_fields": fields,
+            "disagreements": dict(doc.extraction_disagreements),
+            "note": "Values shown as 'regex read vs vision read'.",
+        },
+        summary=f"Extraction disagreement on {len(fields)} field(s): {detail}",
+        confidence=0.5,
     )
 
 
@@ -181,6 +205,7 @@ from reconcile.api import router as recon_router  # noqa: E402
 app.include_router(recon_router)
 
 app.include_router(corrections_router)
+app.include_router(rules_router)
 
 
 # In-memory storage engines for API service session
@@ -205,9 +230,16 @@ SESSION_STORE = AuditSessionStore()
 OPERATIONAL_STORE = OperationalStore(
     dsn=os.getenv("AUDIT_PG_DSN") if os.getenv("V2_PERSISTENCE") == "postgres" else None
 )
+RULE_CONFIG_STORE: dict[str, dict[str, Any]] = {}
 
-# One runner over the full catalog; run_all selects the applicable checks.
-CHECK_RUNNER = CheckRunner(CATALOG.checks)
+
+def _tenant_checks(tenant_id: str) -> list[CheckCatalogEntry]:
+    return effective_checks(CATALOG, RULE_CONFIG_STORE.get(tenant_id))
+
+
+def _tenant_check_map(tenant_id: str) -> dict[str, CheckCatalogEntry]:
+    return {check.check_id: check for check in _tenant_checks(tenant_id)}
+
 
 # Streaming (new_requirements.md §6): both upload endpoints funnel batches
 # through _process_documents under this lock, so concurrent uploads serialise
@@ -385,6 +417,9 @@ def reclassify_document(document_id: str, payload: ReclassifyRequest) -> dict[st
                 doc = fresh
                 DOCUMENTS_STORE[document_id] = doc
                 EVIDENCE_STORE[document_id] = pipeline_result.evidences
+                fresh_disagreement = _disagreement_evidence(doc)
+                if fresh_disagreement is not None:
+                    EVIDENCE_STORE[document_id].append(fresh_disagreement)
                 CONTRADICTION_STORE[doc.document_id] = pipeline_result.contradictions
                 CROSS_CHECK_STORE[document_id] = (
                     pipeline_result.cross_check.model_dump(mode="json")
@@ -418,10 +453,10 @@ def reclassify_document(document_id: str, payload: ReclassifyRequest) -> dict[st
         )
         included = [
             c.check_id
-            for c in CATALOG.checks
+            for c in _tenant_checks(tenant)
             if new_type in c.applies_to and c.determinism == CheckDeterminism.DETERMINISTIC
         ]
-        results = CHECK_RUNNER.run_all(
+        results = CheckRunner(_tenant_checks(tenant)).run_all(
             document=doc,
             included_check_ids=included,
             skipped_check_ids={},
@@ -436,7 +471,7 @@ def reclassify_document(document_id: str, payload: ReclassifyRequest) -> dict[st
         for r in results:
             if r.status in (FindingStatus.PASS, FindingStatus.NOT_APPLICABLE):
                 continue
-            entry = CATALOG_BY_ID.get(r.check_id)
+            entry = _tenant_check_map(tenant).get(r.check_id)
             if entry is None:
                 continue
             finding = make_finding_from_result(
@@ -521,6 +556,7 @@ def _snapshot(tenant_id: str) -> dict[str, Any]:
     docs = {k: v for k, v in DOCUMENTS_STORE.items() if v.tenant_id == tenant_id}
     return {
         "schema_version": "operational-1",
+        "rule_configuration": normalize_rule_configuration(RULE_CONFIG_STORE.get(tenant_id)),
         "documents": {k: v.model_dump(mode="json") for k, v in docs.items()},
         "findings": [f.model_dump(mode="json") for f in FINDINGS_STORE if f.tenant_id == tenant_id],
         "checks": {k: [r.model_dump(mode="json") for r in CHECKS_STORE.get(k, [])] for k in docs},
@@ -548,6 +584,9 @@ def _snapshot(tenant_id: str) -> dict[str, Any]:
 
 
 def _restore(tenant_id: str, snapshot: dict[str, Any] | None) -> None:
+    RULE_CONFIG_STORE[tenant_id] = normalize_rule_configuration(
+        (snapshot or {}).get("rule_configuration")
+    )
     if snapshot is None:
         return
     for k in [k for k, v in DOCUMENTS_STORE.items() if v.tenant_id == tenant_id]:
@@ -665,7 +704,8 @@ def health_check() -> dict[str, Any]:
     active_backend = configured_vision_backend()
     active_gateway = (
         QwenVlGateway()
-        if active_backend in {"qwen", "qwen_vl", "qwen_llama", "qwen_llama_cpp", "qwen_ollama", "ollama"}
+        if active_backend
+        in {"qwen", "qwen_vl", "qwen_llama", "qwen_llama_cpp", "qwen_ollama", "ollama"}
         else GlmOcrGateway()
     )
     return {
@@ -778,7 +818,7 @@ def copilot_chat(payload: CopilotRequest) -> dict[str, Any]:
 
 
 def _failed_rule(f: Finding) -> dict[str, Any]:
-    entry = CATALOG_BY_ID.get(f.check_id)
+    entry = _tenant_check_map(f.tenant_id).get(f.check_id)
     return {
         "rule_id": f.check_id,
         "rule_title": entry.title if entry else f.check_id,
@@ -787,6 +827,8 @@ def _failed_rule(f: Finding) -> dict[str, Any]:
         "impact": entry.failure_message if entry else "",
         "recommendation": "Fix the stated value or provide supporting documentation.",
         "severity": f.severity.value,
+        "score_weight": f.score_weight,
+        "score_impact": f.score_impact,
         "page_number": f.evidence[0].page if f.evidence else None,
     }
 
@@ -804,7 +846,7 @@ def enrich_document(
     decision = decide_document(
         doc,
         CHECKS_STORE.get(doc.document_id, relevant),
-        CATALOG.checks,
+        _tenant_checks(doc.tenant_id),
         pipeline_review=pipeline_review or bool(CONTRADICTION_STORE.get(doc.document_id)),
     )
     decision = apply_release_gate(decision)
@@ -845,6 +887,7 @@ def enrich_document(
         "document_id": doc.document_id,
         "document_name": filename,
         "document_type": doc.doc_type.value,
+        "rule_configuration_revision": RULE_CONFIG_STORE.get(doc.tenant_id, {}).get("revision", 0),
         "passed": decision.passed,
         "audit_status": decision.status.value,
         "decision": decision.model_dump(mode="json"),
@@ -1018,6 +1061,9 @@ def _process_documents_impl(
         # Extraction uncertainty -> human review (new_requirements.md §3): prefer
         # the field-level disagreement finding, else the VLM self-correction flag.
         review_finding = _disagreement_finding(doc, tenant_id)
+        disagreement_evidence = _disagreement_evidence(doc)
+        if disagreement_evidence is not None:
+            EVIDENCE_STORE.setdefault(doc.document_id, []).append(disagreement_evidence)
         if review_finding is None and pipeline_result.requires_human_review:
             review_finding = _self_check_review_finding(doc, tenant_id)
         if review_finding is not None:
@@ -1067,11 +1113,11 @@ def _process_documents_impl(
             if doc.classification_status != ClassificationStatus.CONFIRMED
             else [
                 c.check_id
-                for c in CATALOG.checks
+                for c in _tenant_checks(tenant_id)
                 if doc.doc_type in c.applies_to and c.determinism == CheckDeterminism.DETERMINISTIC
             ]
         )
-        results = CHECK_RUNNER.run_all(
+        results = CheckRunner(_tenant_checks(tenant_id)).run_all(
             document=doc,
             included_check_ids=included,
             skipped_check_ids={},
@@ -1087,7 +1133,7 @@ def _process_documents_impl(
         for r in results:
             if r.status in (FindingStatus.PASS, FindingStatus.NOT_APPLICABLE):
                 continue
-            entry = CATALOG_BY_ID.get(r.check_id)
+            entry = _tenant_check_map(tenant_id).get(r.check_id)
             if entry is None:
                 continue
             deterministic_findings.append(
@@ -1095,7 +1141,10 @@ def _process_documents_impl(
                     result=r,
                     check_entry=entry,
                     document=doc,
-                    ruleset_version=RULESET_VERSION,
+                    ruleset_version=(
+                        f"{RULESET_VERSION}:tenant:"
+                        f"{RULE_CONFIG_STORE.get(tenant_id, {}).get('revision', 0)}"
+                    ),
                     prompt_version=PROMPT_VERSION,
                     model_version=_model_version_for(doc),
                     context_hash=hashlib.sha256(
@@ -1119,7 +1168,10 @@ def _process_documents_impl(
         for item in REVIEW_QUEUE._items.values():
             if (
                 item.document_id == doc.document_id
-                and item.finding.check_id in CATALOG_BY_ID
+                and (
+                    item.finding.check_id in CATALOG_BY_ID
+                    or item.finding.check_id.startswith("CHK-CUSTOM-")
+                )
                 and item.finding.finding_id not in unchanged_ids
                 and item.status in {"PENDING", "ESCALATED"}
             ):
@@ -1148,6 +1200,19 @@ def _process_documents_impl(
                     tenant_id=tenant_id,
                     total_value=val,
                 )
+                configured_by = next(
+                    (
+                        event["actor_id"]
+                        for event in reversed(
+                            RULE_CONFIG_STORE.get(tenant_id, {}).get("history", [])
+                        )
+                        if event["check_id"] == finding.check_id
+                    ),
+                    None,
+                )
+                for review_item in REVIEW_QUEUE._items.values():
+                    if review_item.finding.finding_id == finding.finding_id:
+                        review_item.rule_configured_by = configured_by
 
             AUDIT_LOG.log(
                 entry_id=f"log_{uuid.uuid4().hex[:8]}",

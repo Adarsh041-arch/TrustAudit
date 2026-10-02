@@ -100,26 +100,37 @@ class CheckRunner:
         tenant_tolerances = tenant_tolerances or {}
 
         for check_id in included_check_ids:
-            if check_id not in VALIDATOR_REGISTRY:
+            check_entry = self._catalog.get(check_id)
+            if check_entry is None:
+                results.append(
+                    CheckResult(
+                        check_id=check_id,
+                        status=FindingStatus.SKIPPED,
+                        message=f"Check {check_id} not found in catalog",
+                    )
+                )
+                continue
+
+            validator: Callable[[CheckContext], CheckResult]
+            if check_entry.custom_definition is not None:
+                from audit_v2.domain.validators.custom import evaluate_custom_rule
+
+                validator = evaluate_custom_rule
+            elif check_id in VALIDATOR_REGISTRY:
+                validator = VALIDATOR_REGISTRY[check_id]
+            else:
                 logger.error(
                     "Check %s was routed for execution but has no registered validator",
                     check_id,
                 )
-                results.append(CheckResult(
-                    check_id=check_id,
-                    status=FindingStatus.NEEDS_REVIEW,
-                    message=f"No validator registered for {check_id}",
-                    requires_human_review=True,
-                ))
-                continue
-
-            check_entry = self._catalog.get(check_id)
-            if check_entry is None:
-                results.append(CheckResult(
-                    check_id=check_id,
-                    status=FindingStatus.SKIPPED,
-                    message=f"Check {check_id} not found in catalog",
-                ))
+                results.append(
+                    CheckResult(
+                        check_id=check_id,
+                        status=FindingStatus.NEEDS_REVIEW,
+                        message=f"No validator registered for {check_id}",
+                        requires_human_review=True,
+                    )
+                )
                 continue
 
             ctx = CheckContext(
@@ -133,15 +144,16 @@ class CheckRunner:
             )
 
             try:
-                result = VALIDATOR_REGISTRY[check_id](ctx)
+                result = validator(ctx)
             except (KeyboardInterrupt, SystemExit, MemoryError):
                 raise
             except Exception as exc:
                 # PHASES_V2 §3.3 LOGIC class: an internal invariant violation must
                 # fail loudly, never silently degrade. Emitting FAIL here would make
                 # a code bug indistinguishable from a genuine document defect.
-                logger.exception("Validator %s raised on document %s",
-                                 check_id, document.document_id)
+                logger.exception(
+                    "Validator %s raised on document %s", check_id, document.document_id
+                )
                 result = CheckResult(
                     check_id=check_id,
                     status=FindingStatus.NEEDS_REVIEW,
@@ -152,10 +164,12 @@ class CheckRunner:
             results.append(result)
 
         for check_id, reason in skipped_check_ids.items():
-            results.append(CheckResult(
-                check_id=check_id,
-                status=FindingStatus.SKIPPED,
-                message=reason,
-            ))
+            results.append(
+                CheckResult(
+                    check_id=check_id,
+                    status=FindingStatus.SKIPPED,
+                    message=reason,
+                )
+            )
 
         return results

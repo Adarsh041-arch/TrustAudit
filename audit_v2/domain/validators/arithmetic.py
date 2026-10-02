@@ -174,6 +174,17 @@ def check_grand_total(ctx: CheckContext) -> CheckResult:
     """CHK-ARITH-GRAND-001 — grand_total equals subtotal + tax - discount."""
     doc = ctx.document
     if doc.header.grand_total is None:
+        if any(
+            li.line_total is not None and li.line_total.value.strip()
+            for li in doc.line_items
+        ):
+            # Nothing stated to tie out against; the total is derivable from
+            # line totals (checked by CHK-ARITH-LINE-001), so this check is
+            # not applicable rather than incomplete.
+            return CheckResult.not_applicable(
+                "CHK-ARITH-GRAND-001",
+                "No stated grand_total; tie-out not applicable",
+            )
         return CheckResult.skipped("CHK-ARITH-GRAND-001", "No grand_total")
     if doc.header.subtotal is None:
         if doc.line_items and not doc.tax_lines:

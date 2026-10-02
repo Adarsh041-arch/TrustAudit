@@ -47,7 +47,7 @@ def decide_document(
     required = {
         c.check_id
         for c in catalog
-        if c.blocking
+        if c.enabled and c.blocking
         and document.doc_type in c.applies_to
         and c.determinism == CheckDeterminism.DETERMINISTIC
     }
@@ -73,11 +73,7 @@ def decide_document(
         review.append("Extraction or evidence requires review")
     if document.classification_status != ClassificationStatus.CONFIRMED:
         review.append("Document classification is not confirmed")
-    unsupported = document.doc_type in {
-        DocumentType.UNKNOWN,
-        DocumentType.CONTRACT,
-        DocumentType.LETTER,
-    }
+    unsupported = document.doc_type == DocumentType.UNKNOWN
     if failed:
         status = AuditDecisionStatus.FAIL
     elif unsupported or not required:

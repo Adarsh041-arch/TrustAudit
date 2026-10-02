@@ -53,6 +53,19 @@ def check_mandatory_fields(ctx: CheckContext) -> CheckResult:
         if is_international or not doc.tax_lines:
             mandatory.remove("vendor_gstin")
 
+    # The total is derivable from line totals; absence of a stated grand
+    # total is not a defect on its own.
+    if (
+        doc_type == DocumentType.INVOICE
+        and "grand_total" in mandatory
+        and doc.header.grand_total is None
+        and any(
+            li.line_total is not None and li.line_total.value.strip()
+            for li in doc.line_items
+        )
+    ):
+        mandatory.remove("grand_total")
+
     missing = []
     for field in mandatory:
         val = getattr(doc.header, field, None)

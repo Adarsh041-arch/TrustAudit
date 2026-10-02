@@ -171,6 +171,12 @@ class TestArithmetic:
         assert arithmetic.check_grand_total(
             ctx(d, "CHK-ARITH-GRAND-001")).status == FindingStatus.SKIPPED
 
+    def test_grand_total_not_applicable_when_lines_present_without_total(self):
+        d = doc(lines=[line(1, "2", "10.00", "20.00")])
+        assert d.header.grand_total is None
+        r = arithmetic.check_grand_total(ctx(d, "CHK-ARITH-GRAND-001"))
+        assert r.status == FindingStatus.NOT_APPLICABLE
+
     def test_grand_total_passes_with_tax_and_discount(self):
         d = doc(
             taxes=[tax("18", "90.00", "90.00", "180.00")],
@@ -240,7 +246,7 @@ class TestThreshold:
             ctx(doc(), "CHK-THRESHOLD-LINE-001")).status == FindingStatus.PASS
         d = doc(lines=[line(1, "1", "10.00", "10.00")])
         assert threshold.check_line_threshold(
-            ctx(d, "CHK-THRESHOLD-LINE-001")).status == FindingStatus.SKIPPED
+            ctx(d, "CHK-THRESHOLD-LINE-001")).status == FindingStatus.NOT_APPLICABLE
 
     def test_line_threshold_fails_when_line_exceeds_total(self):
         d = doc(lines=[line(1, "1", "500.00", "500.00")], grand_total=pv("100.00"))
@@ -443,6 +449,15 @@ class TestFormatCompleteness:
         )
         assert format_completeness.check_mandatory_fields(
             ctx(complete, "CHK-FORMAT-MANDATORY-001")).status == FindingStatus.PASS
+
+    def test_mandatory_fields_passes_without_grand_total_when_lines_present(self):
+        d = doc(
+            vendor_name=pv("Acme"), invoice_date=pv("2026-07-15"),
+            lines=[line(1, "2", "10.00", "20.00")],
+        )
+        assert d.header.grand_total is None
+        assert format_completeness.check_mandatory_fields(
+            ctx(d, "CHK-FORMAT-MANDATORY-001")).status == FindingStatus.PASS
 
     @pytest.mark.parametrize("doc_type,fields", [
         (DocumentType.PURCHASE_ORDER, {"vendor_name": pv("A"), "order_date": pv("2026-07-01")}),

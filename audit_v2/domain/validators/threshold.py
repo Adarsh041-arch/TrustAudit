@@ -11,7 +11,11 @@ def check_line_threshold(ctx: CheckContext) -> CheckResult:
     if not doc.line_items:
         return CheckResult.passed("CHK-THRESHOLD-LINE-001")
     if doc.header.grand_total is None:
-        return CheckResult.skipped("CHK-THRESHOLD-LINE-001", "No grand total")
+        # No stated total to compare against; the total is derivable from
+        # line totals, so this check is not applicable rather than incomplete.
+        return CheckResult.not_applicable(
+            "CHK-THRESHOLD-LINE-001", "No stated grand total to compare lines against"
+        )
 
     doc_total = doc.header.grand_total.decimal_value
     for line in doc.line_items:

@@ -39,6 +39,14 @@ def require_reviewer() -> Principal:
     return value
 
 
+def require_rule_configurer() -> Principal:
+    value = principal()
+    local_mode = os.getenv("V2_AUTH_MODE", "local") == "local"
+    if value.role not in {Role.RULE_CONFIGURER, Role.ADMIN} and not local_mode:
+        raise HTTPException(status_code=403, detail="Rule configuration permission required")
+    return value
+
+
 async def authenticate(request: Request, call_next):
     if request.url.path == "/api/v2/health" or request.method == "OPTIONS":
         return await call_next(request)
@@ -75,10 +83,15 @@ async def authenticate(request: Request, call_next):
     query.append(("tenant_id", identity.tenant_id))
     request.scope["query_string"] = urlencode(query).encode()
     read_only_posts = {"/api/v2/audit/report", "/api/v2/copilot/chat", "/api/recon/report"}
+    rule_config_write = (
+        identity.role == Role.RULE_CONFIGURER
+        and request.url.path.startswith("/api/v2/rules")
+    )
     if (
         request.method not in {"GET", "HEAD", "OPTIONS"}
         and identity.role in {Role.VIEWER, Role.AUDITOR, Role.RULE_CONFIGURER}
         and request.url.path not in read_only_posts
+        and not rule_config_write
     ):
         return JSONResponse({"detail": "Write permission required"}, status_code=403)
     token = CURRENT_PRINCIPAL.set(identity)

@@ -4,6 +4,7 @@ This is the M1 thin-slice glue between deterministic validators and
 the persisted audit log. It is the structural guarantee that every
 audit verdict is reproducible (§3.6) and evidence-backed (§4 Phase 9).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -29,12 +30,17 @@ def _document_hash(document: ExtractedDocument) -> str:
     document ingested twice yields the same fingerprint — which is what makes
     the §8 fingerprint-keyed cache and §3.6 reproducibility claim work.
     """
-    payload = document.model_dump_json(exclude={
-        "document_id", "tenant_id", "extraction_latency_ms", "transcript_cache_hit",
-        "vision_call_count", "glm_call_count",
-    })
+    payload = document.model_dump_json(
+        exclude={
+            "document_id",
+            "tenant_id",
+            "extraction_latency_ms",
+            "transcript_cache_hit",
+            "vision_call_count",
+            "glm_call_count",
+        }
+    )
     return f"sha256:{hashlib.sha256(payload.encode()).hexdigest()}"
-
 
 
 def _document_currency(document: ExtractedDocument) -> str | None:
@@ -95,6 +101,7 @@ def make_finding_from_result(
         status=result.status,
         severity=check_entry.severity,
         score_impact=check_entry.score_impact,
+        score_weight=check_entry.score_weight,
         expected=result.expected,
         actual=result.actual,
         delta=result.delta,

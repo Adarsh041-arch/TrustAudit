@@ -22,6 +22,7 @@ dependencies = [
     "rapidocr-onnxruntime>=1.3",
     "opentelemetry-api>=1.28",
     "opentelemetry-sdk>=1.28",
+    "openai>=1.0",
 ]
 
 [project.optional-dependencies]
