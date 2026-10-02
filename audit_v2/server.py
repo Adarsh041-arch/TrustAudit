@@ -478,7 +478,10 @@ def reclassify_document(document_id: str, payload: ReclassifyRequest) -> dict[st
                 result=r,
                 check_entry=entry,
                 document=doc,
-                ruleset_version=RULESET_VERSION,
+                ruleset_version=(
+                    f"{RULESET_VERSION}:tenant:"
+                    f"{RULE_CONFIG_STORE.get(tenant, {}).get('revision', 0)}"
+                ),
                 prompt_version=PROMPT_VERSION,
                 model_version=_model_version_for(doc),
                 context_hash=_document_hash(doc),
@@ -851,7 +854,7 @@ def enrich_document(
     )
     decision = apply_release_gate(decision)
     raw_score = compute_document_score(failed)
-    counts = severity_counts(failed)
+    counts = severity_counts([finding for finding in failed if finding.score_impact])
     evidences = EVIDENCE_STORE.get(doc.document_id, [])
     contradictions = CONTRADICTION_STORE.get(doc.document_id, [])
     document_status = _document_status(doc)

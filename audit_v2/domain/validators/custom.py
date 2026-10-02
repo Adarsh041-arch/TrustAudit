@@ -5,7 +5,13 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from audit_v2.domain.models import CheckContext, CheckResult, ProvenancedValue
+from audit_v2.domain.models import (
+    CheckContext,
+    CheckResult,
+    EvidenceItem,
+    FindingStatus,
+    ProvenancedValue,
+)
 
 ALLOWED_FIELDS = {
     "document.narrative_report",
@@ -72,8 +78,6 @@ ALLOWED_FIELDS = {
             "rate",
             "cgst",
             "sgst",
-            "igst",
-            "cess",
             "total_tax",
         )
     },
@@ -159,9 +163,7 @@ def evaluate_custom_rule(ctx: CheckContext) -> CheckResult:
     if definition.field_path not in ALLOWED_FIELDS:
         return CheckResult(
             check_id=entry.check_id,
-            status=__import__(
-                "audit_v2.domain.models", fromlist=["FindingStatus"]
-            ).FindingStatus.ERROR,
+            status=FindingStatus.ERROR,
             message=f"Custom rule field is not supported: {definition.field_path}",
             requires_human_review=True,
         )
@@ -185,10 +187,29 @@ def evaluate_custom_rule(ctx: CheckContext) -> CheckResult:
         if definition.operator == "is_present"
         else definition.expected_value or "configured requirement"
     )
-    return CheckResult.failed(
+    result = CheckResult.failed(
         entry.check_id,
         expected=expected,
         actual=actual or "no matching values",
         delta="N/A",
         message=entry.failure_message,
     )
+    root, field = definition.field_path.split(".", 1)
+    containers = (
+        [ctx.document.header]
+        if root == "header"
+        else ([ctx.document] if root == "document" else getattr(ctx.document, root, []))
+    )
+    result.evidence = [
+        EvidenceItem(
+            document_id=ctx.document.document_id,
+            page=value.page,
+            bbox=value.bbox,
+            field=definition.field_path,
+            raw=value.raw,
+        )
+        for container in containers
+        if isinstance(value := getattr(container, field, None), ProvenancedValue)
+    ][:50]
+    result.coverage = {"required_values": len(values), "matched_values": sum(matches)}
+    return result

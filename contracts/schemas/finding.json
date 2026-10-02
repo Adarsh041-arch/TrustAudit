@@ -96,6 +96,7 @@
       "title": "Score Impact",
       "type": "boolean"
     },
+    "score_weight": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "default": null},
     "expected": {
       "anyOf": [
         {

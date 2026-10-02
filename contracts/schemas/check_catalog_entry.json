@@ -73,6 +73,21 @@
     "score_impact": {
       "type": "boolean"
     },
+    "score_weight": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "enabled": {"type": "boolean"},
+    "source": {"enum": ["built_in", "custom"]},
+    "custom_definition": {
+      "type": ["object", "null"],
+      "properties": {
+        "field_path": {"type": "string"},
+        "operator": {"enum": ["is_present", "equals", "not_equals", "contains", "starts_with", "ends_with", "greater_than", "less_than", "between"]},
+        "expected_value": {"type": ["string", "null"]},
+        "second_value": {"type": ["string", "null"]},
+        "quantifier": {"enum": ["all", "any"]},
+        "case_sensitive": {"type": "boolean"}
+      },
+      "required": ["field_path", "operator"]
+    },
     "blocking": {
       "type": "boolean"
     },

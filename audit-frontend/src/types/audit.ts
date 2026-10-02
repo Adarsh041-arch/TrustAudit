@@ -25,6 +25,7 @@ export interface MLPredictionDetail {
 }
 
 export interface DocumentAuditResult {
+  rule_configuration_revision?: number
   document_id: string
   document_name: string
   document_type: string

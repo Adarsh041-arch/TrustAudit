@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -127,7 +128,8 @@ def list_rules() -> dict:
     response = rule_response(server.CATALOG, _load(server, actor.tenant_id))
     response["fields"] = sorted(ALLOWED_FIELDS)
     response["can_edit"] = (
-        actor.role.value in {"admin", "rule_configurer"} or actor.actor_id == "local_reviewer"
+        actor.role.value in {"admin", "rule_configurer"}
+        or os.getenv("V2_AUTH_MODE", "local") == "local"
     )
     return response
 

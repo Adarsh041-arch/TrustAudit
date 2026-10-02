@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { apiFetch } from '../api/http'
 import { V2_BASE } from '../api/api_v2'
 
@@ -18,10 +18,32 @@ export function RuleManager() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const editorRef = useRef<HTMLFormElement>(null)
+  const [editorRequest, setEditorRequest] = useState(0)
+  useEffect(() => {
+    const editor = editorRef.current
+    if (!editor) return
+    editor.focus({ preventScroll: true })
+    editor.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' })
+  }, [editorRequest])
+  function openEditor(rule: Rule) {
+    setDraft(structuredClone(rule))
+    setError('')
+    setEditorRequest(previous => previous + 1)
+  }
   async function load() {
     const response = await apiFetch(`${V2_BASE}/rules`)
-    if (!response.ok) throw new Error('Could not load workspace checks')
+    if (!response.ok) {
+      if (response.status === 404) throw new Error('The connected backend does not have the checks API. Restart the TrustAudit backend with the latest code, then retry.')
+      if (response.status === 401 || response.status === 403) throw new Error('Workspace access was denied. Check your access token in Workspace connection, then retry.')
+      throw new Error(`Could not load workspace checks (HTTP ${response.status}). Please retry.`)
+    }
     setConfig(await response.json())
+  }
+  async function retry() {
+    setError('')
+    try { await load() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Could not reach the backend. Check that TrustAudit is running, then retry.') }
   }
   useEffect(() => { void load().catch(err => setError(err.message)) }, [])
   function change<K extends keyof Rule>(key: K, value: Rule[K]) {
@@ -52,19 +74,19 @@ export function RuleManager() {
   }
   const rules = config?.rules.filter(rule => `${rule.title} ${rule.check_id} ${rule.applies_to.join(' ')}`.toLowerCase().includes(query.toLowerCase())) ?? []
   return <section className="v2-panel" aria-label="Workspace checks">
-    <div className="v2-panel-heading"><div><h2>Workspace checks</h2><p>Choose what to check and how much a failed check deducts from a document’s 100-point score.</p></div><button className="v2-primary" disabled={!config?.can_edit || busy} onClick={() => { setDraft(newRule()); setError('') }}>Add check</button></div>
+    <div className="v2-panel-heading"><div><h2>Workspace checks</h2><p>Choose what to check and how much a failed check deducts from a document’s 100-point score.</p></div><button className="v2-primary" disabled={!config?.can_edit || busy} onClick={() => openEditor(newRule())}>Add check</button></div>
     <div className="px-6 pb-5 space-y-4">
       <p className="text-sm text-muted">Priority controls how urgently a finding is shown. Weight is the score deduction (0–100 points). Blocking checks determine pass or fail independently of the score. Recommended fields default to no score deduction.</p>
       {config && <p className="text-xs text-muted">Configuration version {config.revision} · {config.rules.filter(rule => rule.enabled).length} enabled checks{!config.can_edit && ' · Read only — ask your workspace administrator for rule configuration access'}</p>}
-      {error && <p role="alert" className="text-red-600">{error}</p>}
+      {error && <div role="alert" className="text-red-600"><p>{error}</p>{!config && <button type="button" className="v2-text-button" onClick={() => void retry()}>Retry loading checks</button>}</div>}
       {notice && <div role="status" className="text-emerald-700 dark:text-emerald-300"><p>{notice}</p><button type="button" className="v2-text-button" onClick={() => window.location.reload()}>Refresh workspace results</button></div>}
       {!config && !error && <p role="status">Loading checks…</p>}
       <label className="v2-search"><span>Search</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Check name or document type" /></label>
       <div className="v2-table-scroll"><table className="v2-document-table"><thead><tr><th>Check</th><th>Documents</th><th>Priority</th><th>Score deduction</th><th>Status</th><th>Action</th></tr></thead><tbody>{rules.map(rule => <tr key={rule.check_id}>
         <td><strong>{rule.title}</strong><small className="v2-cell-note">{rule.source === 'custom' ? 'Your custom check' : 'Built-in check'}{rule.configured ? ' · Customized' : ''}{rule.determinism !== 'deterministic' ? ' · Advisory definition; automatic execution unavailable' : ''}</small></td>
-        <td className="text-xs capitalize">{rule.applies_to.map(label).join(', ')}</td><td className="capitalize">{rule.severity}</td><td>{rule.score_impact ? `${rule.score_weight ?? WEIGHTS[rule.severity]} points` : 'None'}</td><td>{rule.enabled ? 'Enabled' : 'Disabled'}{rule.blocking && rule.enabled && <small className="v2-cell-note">Blocks clearance</small>}</td><td><button className="v2-text-button" disabled={!config?.can_edit || busy} onClick={() => { setDraft(structuredClone(rule)); setError('') }}>Edit</button></td>
+        <td className="text-xs capitalize">{rule.applies_to.map(label).join(', ')}</td><td className="capitalize">{rule.severity}</td><td>{rule.score_impact ? `${rule.score_weight ?? WEIGHTS[rule.severity]} points` : 'None'}</td><td>{rule.enabled ? 'Enabled' : 'Disabled'}{rule.blocking && rule.enabled && <small className="v2-cell-note">Blocks clearance</small>}</td><td><button className="v2-text-button" disabled={!config?.can_edit || busy} onClick={() => openEditor(rule)}>Edit</button></td>
       </tr>)}</tbody></table>{config && !rules.length && <p className="p-5 text-muted">No checks match your search.</p>}</div>
-      {draft && <form className="p-5 rounded-xl border border-border bg-surface-1 space-y-4" onSubmit={event => { event.preventDefault(); void save() }} aria-label="Edit check">
+      {draft && <form ref={editorRef} tabIndex={-1} className="p-5 rounded-xl border border-border bg-surface-1 space-y-4 scroll-mt-6" onSubmit={event => { event.preventDefault(); void save() }} aria-label="Edit check">
         <h3 className="text-lg font-semibold">{draft.check_id ? 'Edit check' : 'Create a custom check'}</h3>
         <div className="grid md:grid-cols-2 gap-4">
           <label className="block text-sm">Check name<input className="block w-full p-2 border border-border rounded-lg bg-surface-2" required minLength={3} maxLength={160} readOnly={draft.source === 'built_in'} value={draft.title} onChange={event => change('title', event.target.value)} /></label>

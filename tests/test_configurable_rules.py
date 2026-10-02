@@ -4,7 +4,7 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-import audit_v2.server as server
+from audit_v2 import server
 from audit_v2.analytics.risk_scorer import compute_document_score
 from audit_v2.domain.models import (
     CheckCatalogEntry,
@@ -228,3 +228,56 @@ def test_numeric_custom_condition_executes_with_decimal_precision():
     )
     results = CheckRunner([check]).run_all(doc, [check.check_id], {})
     assert results[0].status == FindingStatus.PASS
+
+
+def test_configured_rule_runs_on_later_upload_and_respects_applicability(monkeypatch):
+    client = TestClient(server.app)
+    created = client.post("/api/v2/rules", json=payload()).json()
+    custom = next(row for row in created["rules"] if row["source"] == "custom")
+    monkeypatch.setattr(server, "run_document_pipeline", fake_document)
+    monkeypatch.setattr(server, "generate_preview", lambda *args: "")
+    result = server._process_documents(
+        [("later.pdf", b"later", "application/pdf")],
+        "tenant_default",
+        NullProgressSink(),
+    )
+    assert custom["check_id"] in {
+        r["check_id"] for r in result["document_results"][0]["check_results"]
+    }
+    changed = client.put(
+        f"/api/v2/rules/{custom['check_id']}",
+        json={
+            "expected_revision": 1,
+            "applies_to": ["purchase_order"],
+        },
+    )
+    assert changed.status_code == 200
+    assert custom["check_id"] not in {
+        r["check_id"]
+        for r in client.get("/api/v2/audit/workspace").json()["document_results"][0][
+            "check_results"
+        ]
+    }
+
+
+def test_failed_recheck_rolls_back_configuration_and_history(monkeypatch):
+    client = TestClient(server.app, raise_server_exceptions=False)
+    created = client.post("/api/v2/rules", json=payload()).json()
+    custom = next(row for row in created["rules"] if row["source"] == "custom")
+
+    def failed_recheck(*args, **kwargs):
+        raise RuntimeError("Recheck failed")
+
+    monkeypatch.setattr(server, "_process_documents_impl", failed_recheck)
+    response = client.put(
+        f"/api/v2/rules/{custom['check_id']}",
+        json={"expected_revision": 1, "score_weight": 30, "severity": "low"},
+    )
+    assert response.status_code == 500
+    restored = client.get("/api/v2/rules").json()
+    assert restored["revision"] == 1
+    assert restored["history"] == created["history"]
+    rule = next(row for row in restored["rules"] if row["check_id"] == custom["check_id"])
+    assert rule["score_weight"] == 17.5 and rule["severity"] == "high"
+    with server.OPERATIONAL_STORE.transaction("tenant_default") as tx:
+        assert tx.load()["rule_configuration"]["revision"] == 1
